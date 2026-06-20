@@ -43,5 +43,5 @@ Map<String, dynamic> _$$InterestProfileImplToJson(
   _$InterestProfileImpl instance,
 ) => <String, dynamic>{
   'current_interests': instance.currentInterests,
-  'ai_agent_metadata': instance.aiAgentMetadata,
+  'ai_agent_metadata': instance.aiAgentMetadata.toJson(),
 };

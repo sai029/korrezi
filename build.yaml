@@ -1,0 +1,10 @@
+# json_serializable をネストオブジェクトまで再帰的に toJson させる設定。
+# explicit_to_json を有効にしないと、ネストした Freezed モデル
+# (ThumbnailConfig / AiAgentMetadata 等) が Map に変換されず生インスタンスのまま
+# 残り、Firestore 書き込みで Invalid argument エラーになる。
+targets:
+  $default:
+    builders:
+      json_serializable:
+        options:
+          explicit_to_json: true

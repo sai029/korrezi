@@ -50,7 +50,7 @@ Map<String, dynamic> _$$PersonalizedFeedItemImplToJson(
   'interest_context': instance.interestContext,
   'display_title': instance.displayTitle,
   'display_tagline': instance.displayTagline,
-  'thumbnail_config': instance.thumbnailConfig,
+  'thumbnail_config': instance.thumbnailConfig.toJson(),
   'is_viewed': instance.isViewed,
   'view_duration_seconds': instance.viewDurationSeconds,
 };
