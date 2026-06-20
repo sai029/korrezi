@@ -11,8 +11,11 @@
 | 3 | 動的テーマ切替（AnimatedTheme × 向き連動） | ✅ 完了 |
 | 4 | Freezed モデル（Firestore スキーマ反映） | ✅ 完了 |
 | 5 | Child Feed（縦 PageView + Telemetry 雛形） | ✅ 完了 |
+| — | Parent Dashboard（骨格） | ✅ 完了 |
+| — | Common View（骨格・2カラム + ルビ） | ✅ 完了 |
+| — | 画面間ナビゲーション（AppDrawer） | ✅ 完了 |
 | — | Firebase 接続（Android のみ） | 🟡 一部 |
-| — | Parent Dashboard / Common View / Cloud Functions | ⬜ 未着手 |
+| — | Cloud Functions / Firestore 実連携 | ⬜ 未着手 |
 
 検証: `flutter analyze` → No issues ／ `flutter test` → All passed。
 
@@ -43,6 +46,14 @@
 - `child_feed_provider.dart`: `AsyncNotifier` + `recordView`（現状サンプルデータ）
 - `shared/widgets/feed_thumbnail.dart`: 画像抽象化レイヤー
   （既定 text_overlay / `useGeneratedImages` で Imagen 3 切替）
+
+### 追加ページ（骨格）
+- **Parent Dashboard**（`features/parent_dashboard/`）: Interest Cloud（スコア可変バッジ）、
+  親子トークプロンプト、保護者向け要約。`AsyncNotifier` + サンプルデータ
+- **Common View**（`features/common_view/`）: 横幅に応じた2カラム分割
+  （左=ナビゲーショングリッド / 右=記事リーダー）。`LayoutBuilder` で縦向きは1カラムへ
+- **FuriganaText**（`shared/widgets/`）: `〔漢字｜よみ〕` markup をルビ表示
+- **AppDrawer**（`shared/widgets/`）: 開発用に3モードを行き来する導線
 
 ### Firebase
 - `flutterfire configure` で **Android 設定済み**（`firebase_options.dart` /

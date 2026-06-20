@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/models/personalized_feed_item.dart';
+import '../../../shared/widgets/app_drawer.dart';
 import '../../../shared/widgets/feed_thumbnail.dart';
 import '../application/child_feed_provider.dart';
 
@@ -54,30 +55,44 @@ class _ChildFeedScreenState extends ConsumerState<ChildFeedScreen> {
 
     return Scaffold(
       backgroundColor: Colors.black,
-      body: feedAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Text('読み込みに失敗しました: $e',
-              style: const TextStyle(color: Colors.white)),
-        ),
-        data: (feed) {
-          if (feed.isEmpty) {
-            return const Center(
-              child: Text('まだ記事がありません',
-                  style: TextStyle(color: Colors.white)),
-            );
-          }
-          // 初回ページの計測を開始。
-          _currentNewsId ??= feed.first.newsId;
+      drawer: const AppDrawer(),
+      body: Stack(
+        children: [
+          feedAsync.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (e, _) => Center(
+              child: Text('読み込みに失敗しました: $e',
+                  style: const TextStyle(color: Colors.white)),
+            ),
+            data: (feed) {
+              if (feed.isEmpty) {
+                return const Center(
+                  child: Text('まだ記事がありません',
+                      style: TextStyle(color: Colors.white)),
+                );
+              }
+              // 初回ページの計測を開始。
+              _currentNewsId ??= feed.first.newsId;
 
-          return PageView.builder(
-            controller: _controller,
-            scrollDirection: Axis.vertical,
-            itemCount: feed.length,
-            onPageChanged: (index) => _onPageChanged(feed, index),
-            itemBuilder: (context, index) => _FeedPage(item: feed[index]),
-          );
-        },
+              return PageView.builder(
+                controller: _controller,
+                scrollDirection: Axis.vertical,
+                itemCount: feed.length,
+                onPageChanged: (index) => _onPageChanged(feed, index),
+                itemBuilder: (context, index) => _FeedPage(item: feed[index]),
+              );
+            },
+          ),
+          // 没入感を保ちつつ、左上に控えめなメニュー導線を重ねる。
+          SafeArea(
+            child: Builder(
+              builder: (context) => IconButton(
+                icon: const Icon(Icons.menu, color: Colors.white),
+                onPressed: () => Scaffold.of(context).openDrawer(),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
