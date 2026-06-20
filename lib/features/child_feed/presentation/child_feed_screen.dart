@@ -77,6 +77,8 @@ class _ChildFeedScreenState extends ConsumerState<ChildFeedScreen> {
               return PageView.builder(
                 controller: _controller,
                 scrollDirection: Axis.vertical,
+                // 軽いスワイプでも素早く次の記事へスナップする。
+                physics: const _FastPageScrollPhysics(),
                 itemCount: feed.length,
                 onPageChanged: (index) => _onPageChanged(feed, index),
                 itemBuilder: (context, index) => _FeedPage(item: feed[index]),
@@ -96,6 +98,33 @@ class _ChildFeedScreenState extends ConsumerState<ChildFeedScreen> {
       ),
     );
   }
+}
+
+/// 反応の速いページスクロール物理。
+///
+/// - [spring]: 硬めのバネで、ページ切替のスナップを素早く完了させる。
+/// - [minFlingVelocity]: フリック判定の閾値を下げ、軽いスワイプでも切替を発火。
+/// - [dragStartDistanceMotionThreshold]: ドラッグ開始の遊びを減らして即応化。
+class _FastPageScrollPhysics extends PageScrollPhysics {
+  const _FastPageScrollPhysics({super.parent});
+
+  @override
+  _FastPageScrollPhysics applyTo(ScrollPhysics? ancestor) {
+    return _FastPageScrollPhysics(parent: buildParent(ancestor));
+  }
+
+  @override
+  SpringDescription get spring => SpringDescription.withDampingRatio(
+        mass: 0.3,
+        stiffness: 360,
+        ratio: 1.1, // critically damped 寄りで素早く・オーバーシュートなし
+      );
+
+  @override
+  double get minFlingVelocity => 30.0; // 既定50より低くして軽い指弾きでも切替
+
+  @override
+  double get dragStartDistanceMotionThreshold => 1.5; // 既定3.5より小さく即応
 }
 
 /// 1記事分の没入型ページ（大型サムネ + テキストオーバーレイ + アクションフック）。
