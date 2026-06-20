@@ -16,6 +16,7 @@
 | — | 画面間ナビゲーション（AppDrawer） | ✅ 完了 |
 | — | Firebase 初期化（main で initializeApp、失敗時はサンプルへ） | ✅ 完了 |
 | — | Firestore 実連携（data層リポジトリ + 3画面プロバイダ接続） | ✅ 完了 |
+| — | 認証（起動時ログイン画面 / Google・ゲスト / ログアウト） | ✅ 完了 |
 | — | Cloud Functions（Gemini/AIパイプライン） | ⬜ 未着手 |
 
 検証: `flutter analyze` → No issues ／ `flutter test` → All passed。
@@ -96,8 +97,42 @@
 
 ---
 
+## サンプルデータ投入（dev シーダー）
+
+実データ（Cloud Functions）未実装のため、開発用に Firestore へサンプルを投入できる。
+
+- 実装: `lib/core/firebase/firestore_seeder.dart`（`news_pool` / `personalized_feed` /
+  `interest_profile/current` を1バッチ書込み。news_pool と personalized_feed は同一 doc id で対応）
+- 実行: アプリ起動 → 左ドロワー → **「サンプルデータ投入 (dev)」** をタップ。投入後に3画面のプロバイダを
+  自動 invalidate して再取得。個人配下データは実行時の（匿名）uid に紐づくため表示と一致する
+
+**投入に必要な手動設定（Firebase 側、未実施なら要対応）:**
+1. Firebase コンソール → Authentication → Sign-in method で **匿名（Anonymous）を有効化**
+   （無効だと uid が取れず、ルールの `request.auth != null` が false になり書込み拒否）
+2. Firestore セキュリティルールを反映: `firebase deploy --only firestore:rules`
+   （ルールは `firestore.rules`。認証済みユーザーに news_pool 読み書き＋本人の users 配下のみ許可）
+
+---
+
+## 認証（起動時ログイン）
+
+- 構成: `core/auth/auth_service.dart`（Google: `signInWithProvider` / ゲスト: 匿名 / signOut）、
+  `core/firebase/firebase_providers.dart` の `authStateProvider` + `currentUserIdProvider`、
+  `features/auth/presentation/login_screen.dart`、`core/router/app_router.dart` の redirect
+- 挙動: Firebase 有効 & 未ログイン → `/login` へ。Firebase 未初期化時（テスト等）はゲート無効でサンプル動作
+- Google ログインは `google_sign_in` 不要（`firebase_auth` の `signInWithProvider`）
+
+**残作業 / 注意:**
+- **iOS**: Google ログインに `ios/Runner/Info.plist` へ REVERSED_CLIENT_ID の URL スキーム追加が必要
+  （`GoogleService-Info.plist` の取得・配置も）。現状 Android のみ設定済み
+- リリースビルド用 SHA-1 を別途 Firebase に登録要（現状は debug キーのみ）
+- Web/Windows デスクトップは `signInWithProvider` の Google フロー非対応のため、当面 Android/iOS で検証
+
+---
+
 ## 開発メモ
 
 - モデル編集時: `dart run build_runner watch --delete-conflicting-outputs`
 - 検証: `flutter analyze` / `flutter test`
+- 実機/エミュレータ確認: `flutter run`（Android 推奨）
 - 秘密情報（service account 鍵・`.env`・AI APIキー）は **コミット禁止**（`.gitignore` 済み）

@@ -17,7 +17,7 @@ class ChildFeedNotifier extends AsyncNotifier<List<PersonalizedFeedItem>> {
     // Firebase 未初期化時はサンプルデータで動作。
     if (!ref.watch(firebaseReadyProvider)) return _sampleFeed;
 
-    _userId = await ref.watch(currentUserIdProvider.future);
+    _userId = ref.watch(currentUserIdProvider);
     _repo = ref.watch(feedRepositoryProvider);
     try {
       final items = await _repo!.fetchFeed(_userId!);

@@ -1,0 +1,20 @@
+rules_version = '2';
+
+// 開発用ルール。認証済みユーザーを前提とする（匿名認証でOK）。
+// TODO: 本番では news_pool/interest_profile の書き込みを
+//       Cloud Functions（Admin SDK）のみに制限する。
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 元記事プール: 認証済みなら読み取り可。
+    // dev シーダーがクライアントから書き込むため write も許可（本番では要制限）。
+    match /news_pool/{newsId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ユーザー個人データ（personalized_feed / interest_profile 等）は本人のみ。
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}

@@ -18,19 +18,22 @@ final authProvider = Provider<FirebaseAuth>((ref) => FirebaseAuth.instance);
 /// Firebase/Auth が使えないときに使うローカル開発用のユーザー ID。
 const String devUserId = 'dev_local_user';
 
+/// 認証状態（サインイン中のユーザー）を購読する。
+///
+/// Firebase 未初期化時は常に null を流す（FirebaseAuth に触れない）。
+final authStateProvider = StreamProvider<User?>((ref) {
+  if (!ref.watch(firebaseReadyProvider)) {
+    return Stream<User?>.value(null);
+  }
+  return ref.watch(authProvider).authStateChanges();
+});
+
 /// 現在のユーザー ID を解決する。
 ///
-/// Firebase が利用可能なら匿名サインインして uid を返す。
-/// 初期化失敗・匿名認証無効などの場合は [devUserId] にフォールバックする。
-final currentUserIdProvider = FutureProvider<String>((ref) async {
+/// サインイン中ならその uid。未サインイン・Firebase 未初期化時は [devUserId]。
+/// （サインインは [authStateProvider] / ログイン画面が担う。ここでは自動認証しない）
+final currentUserIdProvider = Provider<String>((ref) {
   if (!ref.watch(firebaseReadyProvider)) return devUserId;
-  try {
-    final auth = ref.watch(authProvider);
-    final user =
-        auth.currentUser ?? (await auth.signInAnonymously()).user;
-    return user?.uid ?? devUserId;
-  } catch (_) {
-    // 匿名認証が無効、ネットワーク不通などは開発用 ID で続行。
-    return devUserId;
-  }
+  final user = ref.watch(authStateProvider).valueOrNull;
+  return user?.uid ?? devUserId;
 });

@@ -36,7 +36,7 @@ class ParentDashboardNotifier extends AsyncNotifier<ParentDashboardData> {
     if (!ref.watch(firebaseReadyProvider)) return _sample;
 
     try {
-      final userId = await ref.watch(currentUserIdProvider.future);
+      final userId = ref.watch(currentUserIdProvider);
       final repo = ref.watch(parentDashboardRepositoryProvider);
       final profile =
           await repo.fetchInterestProfile(userId) ?? _sample.profile;
