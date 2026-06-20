@@ -9,6 +9,16 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+analyzer:
+  errors:
+    # freezed + json_serializable: コンストラクタ引数への @JsonKey/@Default 等は
+    # 生成コード側では正しく適用されるため、この警告は抑制する（公式推奨対応）。
+    invalid_annotation_target: ignore
+  exclude:
+    # 自動生成コードは解析対象から除外。
+    - "**/*.freezed.dart"
+    - "**/*.g.dart"
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`

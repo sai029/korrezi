@@ -57,13 +57,10 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 
-  # --- コード生成 (Freezed / JSON / Riverpod) ---
+  # --- コード生成 (Freezed / JSON) ---
   build_runner: ^2.4.13
   freezed: ^2.5.7
   json_serializable: ^6.9.0
-  riverpod_generator: ^2.6.3
-  riverpod_lint: ^2.6.3
-  custom_lint: ^0.7.0
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
