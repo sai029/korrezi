@@ -14,8 +14,9 @@
 | — | Parent Dashboard（骨格） | ✅ 完了 |
 | — | Common View（骨格・2カラム + ルビ） | ✅ 完了 |
 | — | 画面間ナビゲーション（AppDrawer） | ✅ 完了 |
-| — | Firebase 接続（Android のみ） | 🟡 一部 |
-| — | Cloud Functions / Firestore 実連携 | ⬜ 未着手 |
+| — | Firebase 初期化（main で initializeApp、失敗時はサンプルへ） | ✅ 完了 |
+| — | Firestore 実連携（data層リポジトリ + 3画面プロバイダ接続） | ✅ 完了 |
+| — | Cloud Functions（Gemini/AIパイプライン） | ⬜ 未着手 |
 
 検証: `flutter analyze` → No issues ／ `flutter test` → All passed。
 
@@ -64,13 +65,23 @@
 
 ## 未着手 / 次の候補
 
-1. **Firestore 連携の実体化**: `child_feed_provider` のサンプルデータを実 Firestore
-   ストリームへ。`data/` 層にリポジトリ作成、`main.dart` で `Firebase.initializeApp` 有効化
-2. **Parent Dashboard（仕様①）**: Interest Cloud / Topic Badges、親子トークプロンプト、
-   `parent_summary` 表示、FCM Push 受信
-3. **Common View（仕様③）**: 横向き2カラム分割 + ルビ/Furigana レンダリング
-4. **Cloud Functions（仕様4章）**: `functions/` で Gemini 連携・3段階の AI DevOps パイプライン
-5. **YouTube風メディアグリッド（仕様②）**: タブレット向けグリッド探索
+1. **Cloud Functions（仕様4章）**: `functions/` で Gemini 連携・3段階の AI DevOps パイプライン。
+   合わせて `news_pool` / `personalized_feed` / `interest_profile` へ実データ投入
+2. **FCM Push 受信**: 親子トークプロンプト準備・興味マイルストーン到達時の通知 + ディープリンク
+3. **YouTube風メディアグリッド（仕様②）**: タブレット向けグリッド探索
+4. **Firestore セキュリティルール**: `users/{uid}` を本人のみ、`news_pool` は読み取り専用に
+5. **リアルタイム購読化**: 現状は `.get()` 一括取得。必要に応じて `snapshots()` ストリームへ
+
+### Firestore 実連携（完了）の内容
+- `lib/core/firebase/firebase_providers.dart`: `firebaseReadyProvider` /
+  `firestoreProvider` / `authProvider` / `currentUserIdProvider`（匿名認証、失敗時 `dev_local_user`）
+- `data/` 層リポジトリ: `FeedRepository`(personalized_feed + recordView 書込) /
+  `NewsRepository`(news_pool) / `ParentDashboardRepository`(interest_profile/current + news_pool)
+- 3画面プロバイダを接続。**Firebase 未初期化・データ無し・エラー時はサンプルにフォールバック**するため、
+  バックエンド未整備でも動作・テスト継続が可能
+- `main.dart` で `Firebase.initializeApp` を try/catch、結果を `firebaseReadyProvider` に override
+- データモデルのパス対応: `interest_profile` は単一オブジェクト想定のため
+  `users/{uid}/interest_profile/current` ドキュメントとして格納
 
 ---
 

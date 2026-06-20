@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/firebase/firebase_providers.dart';
 import '../../../shared/models/interest_profile.dart';
 import '../../../shared/models/news_pool.dart';
+import '../data/parent_dashboard_repository.dart';
 
 /// Parent Dashboard 表示に必要なデータ束。
 class ParentDashboardData {
@@ -23,11 +25,56 @@ class ParentDashboardData {
 
 /// Parent Dashboard の状態管理。
 ///
-/// TODO: Firestore `/users/{userId}/interest_profile` と `/news_pool` を購読し、
-/// talkPrompts は Cloud Functions(Gemini) 生成値に差し替える。
+/// Firebase が利用可能なら Firestore の interest_profile と news_pool を取得する。
+/// 未初期化・データ無し・エラー時はサンプルにフォールバックする。
+///
+/// TODO: talkPrompts は本来 Cloud Functions(Gemini) が生成する。CF 未実装のため
+/// 現状はプロファイルと記事から簡易生成（[_buildTalkPrompts]）している。
 class ParentDashboardNotifier extends AsyncNotifier<ParentDashboardData> {
   @override
-  Future<ParentDashboardData> build() async => _sample;
+  Future<ParentDashboardData> build() async {
+    if (!ref.watch(firebaseReadyProvider)) return _sample;
+
+    try {
+      final userId = await ref.watch(currentUserIdProvider.future);
+      final repo = ref.watch(parentDashboardRepositoryProvider);
+      final profile =
+          await repo.fetchInterestProfile(userId) ?? _sample.profile;
+      final fetched = await repo.fetchTodaysArticles();
+      final articles = fetched.isEmpty ? _sample.articles : fetched;
+      return ParentDashboardData(
+        profile: profile,
+        articles: articles,
+        talkPrompts: _buildTalkPrompts(profile, articles),
+      );
+    } catch (_) {
+      return _sample;
+    }
+  }
+
+  /// 興味プロファイルと当日記事から親子トークの問いかけを簡易生成する。
+  ///
+  /// Cloud Functions(Gemini) 連携までの暫定実装。記事タイトルを「？」付きの
+  /// 開かれた問いに変換し、上位の関心カテゴリにも触れる。
+  List<String> _buildTalkPrompts(
+    InterestProfile profile,
+    List<NewsPool> articles,
+  ) {
+    final prompts = <String>[
+      for (final a in articles.take(3))
+        '「${a.originalTitle}」について、どう思うか聞いてみよう。',
+    ];
+
+    final top = (profile.currentInterests.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value)))
+        .map((e) => e.key)
+        .take(2)
+        .toList();
+    if (top.isNotEmpty) {
+      prompts.add('最近は ${top.join(' と ')} に夢中みたい。一緒に話してみよう。');
+    }
+    return prompts.isEmpty ? _sample.talkPrompts : prompts;
+  }
 }
 
 final parentDashboardProvider =

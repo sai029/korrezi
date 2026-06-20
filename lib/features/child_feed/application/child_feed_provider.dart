@@ -1,36 +1,61 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/firebase/firebase_providers.dart';
 import '../../../shared/models/personalized_feed_item.dart';
+import '../data/feed_repository.dart';
 
 /// Child Mode フィードの状態管理（AsyncNotifier）。
 ///
-/// 本来は Firestore `/users/{userId}/personalized_feed` を購読するが、
-/// Firebase の認証/データ投入が未整備のため、現段階ではサンプルデータを返す。
-/// TODO: Firestore ストリーム購読に差し替える（data層リポジトリ経由）。
+/// Firebase が利用可能なら Firestore `/users/{userId}/personalized_feed` を取得し、
+/// 未初期化・データ無し・エラー時はサンプルデータにフォールバックする。
 class ChildFeedNotifier extends AsyncNotifier<List<PersonalizedFeedItem>> {
+  FeedRepository? _repo;
+  String? _userId;
+
   @override
   Future<List<PersonalizedFeedItem>> build() async {
-    // TODO: data層の FeedRepository.watchFeed(userId) に置き換える。
-    return _sampleFeed;
+    // Firebase 未初期化時はサンプルデータで動作。
+    if (!ref.watch(firebaseReadyProvider)) return _sampleFeed;
+
+    _userId = await ref.watch(currentUserIdProvider.future);
+    _repo = ref.watch(feedRepositoryProvider);
+    try {
+      final items = await _repo!.fetchFeed(_userId!);
+      // 投入前など空のときはサンプルで開発を継続できるようにする。
+      return items.isEmpty ? _sampleFeed : items;
+    } catch (_) {
+      // 権限不足・オフライン等はサンプルにフォールバック。
+      return _sampleFeed;
+    }
   }
 
   /// Telemetry Agent: 記事の閲覧秒数を記録する。
   ///
-  /// 現段階はローカル状態を更新するのみ。
-  /// TODO: Firestore の該当ドキュメントへ view_duration_seconds / is_viewed を書き込む。
-  void recordView(String newsId, int durationSeconds) {
+  /// ローカル状態を楽観的に更新したうえで、可能なら Firestore へ
+  /// view_duration_seconds / is_viewed を反映する。
+  Future<void> recordView(String newsId, int durationSeconds) async {
     final current = state.valueOrNull;
-    if (current == null) return;
-    state = AsyncData([
-      for (final item in current)
-        if (item.newsId == newsId)
-          item.copyWith(
-            isViewed: true,
-            viewDurationSeconds: item.viewDurationSeconds + durationSeconds,
-          )
-        else
-          item,
-    ]);
+    if (current != null) {
+      state = AsyncData([
+        for (final item in current)
+          if (item.newsId == newsId)
+            item.copyWith(
+              isViewed: true,
+              viewDurationSeconds: item.viewDurationSeconds + durationSeconds,
+            )
+          else
+            item,
+      ]);
+    }
+
+    final repo = _repo;
+    final userId = _userId;
+    if (repo == null || userId == null) return;
+    try {
+      await repo.recordView(userId, newsId, durationSeconds);
+    } catch (_) {
+      // オフライン等は無視（ローカル状態は更新済み）。
+    }
   }
 }
 

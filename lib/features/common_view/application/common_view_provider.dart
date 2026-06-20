@@ -1,13 +1,24 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/firebase/firebase_providers.dart';
 import '../../../shared/models/news_pool.dart';
+import '../data/news_repository.dart';
 
 /// Common View で読む記事一覧（左ナビゲーショングリッドのもと）。
 ///
-/// TODO: Firestore `/news_pool` または personalized_feed を購読して差し替える。
+/// Firebase が利用可能なら Firestore `/news_pool` を取得し、
+/// 未初期化・データ無し・エラー時はサンプルにフォールバックする。
 class CommonViewNotifier extends AsyncNotifier<List<NewsPool>> {
   @override
-  Future<List<NewsPool>> build() async => _sample;
+  Future<List<NewsPool>> build() async {
+    if (!ref.watch(firebaseReadyProvider)) return _sample;
+    try {
+      final articles = await ref.watch(newsRepositoryProvider).fetchNewsPool();
+      return articles.isEmpty ? _sample : articles;
+    } catch (_) {
+      return _sample;
+    }
+  }
 }
 
 final commonViewProvider =
