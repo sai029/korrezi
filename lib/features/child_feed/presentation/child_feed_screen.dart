@@ -24,6 +24,11 @@ class _ChildFeedScreenState extends ConsumerState<ChildFeedScreen> {
   String? _currentNewsId;
   DateTime _pageEnteredAt = DateTime.now();
 
+  /// 破棄後でも安全に Telemetry を送るための notifier 参照。
+  /// PageView のスナップ・アニメーションは画面破棄後に onPageChanged を
+  /// 発火させることがあり、その時点で `ref` は使えないため事前に保持する。
+  ChildFeedNotifier? _feedNotifier;
+
   @override
   void dispose() {
     _flushCurrentDuration();
@@ -37,12 +42,14 @@ class _ChildFeedScreenState extends ConsumerState<ChildFeedScreen> {
     if (id == null) return;
     final seconds = DateTime.now().difference(_pageEnteredAt).inSeconds;
     if (seconds > 0) {
-      ref.read(childFeedProvider.notifier).recordView(id, seconds);
+      _feedNotifier?.recordView(id, seconds);
     }
   }
 
   void _onPageChanged(List<PersonalizedFeedItem> feed, int index) {
     _flushCurrentDuration();
+    // 破棄後（アニメーション余波での発火）は状態更新しない。
+    if (!mounted) return;
     setState(() {
       _currentNewsId = feed[index].newsId;
       _pageEnteredAt = DateTime.now();
@@ -51,6 +58,8 @@ class _ChildFeedScreenState extends ConsumerState<ChildFeedScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 破棄後にも参照できるよう notifier を保持しておく。
+    _feedNotifier = ref.read(childFeedProvider.notifier);
     final feedAsync = ref.watch(childFeedProvider);
 
     return Scaffold(
