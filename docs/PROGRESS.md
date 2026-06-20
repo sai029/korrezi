@@ -17,7 +17,8 @@
 | — | Firebase 初期化（main で initializeApp、失敗時はサンプルへ） | ✅ 完了 |
 | — | Firestore 実連携（data層リポジトリ + 3画面プロバイダ接続） | ✅ 完了 |
 | — | 認証（起動時ログイン画面 / Google・ゲスト / ログアウト） | ✅ 完了 |
-| — | Cloud Functions（Gemini/AIパイプライン） | ⬜ 未着手 |
+| — | Cloud Functions: GNews 実記事取得（生記事のまま投入） | ✅ 完了（要デプロイ） |
+| — | Cloud Functions（Gemini/AIパイプライン・子ども向け変換） | ⬜ 未着手 |
 
 検証: `flutter analyze` → No issues ／ `flutter test` → All passed。
 
@@ -111,6 +112,33 @@
    （無効だと uid が取れず、ルールの `request.auth != null` が false になり書込み拒否）
 2. Firestore セキュリティルールを反映: `firebase deploy --only firestore:rules`
    （ルールは `firestore.rules`。認証済みユーザーに news_pool 読み書き＋本人の users 配下のみ許可）
+
+---
+
+## GNews 実ニュース取得（Cloud Functions）
+
+実記事（タイトル・本文・画像）を取り込むため、GNews.io を呼ぶ Cloud Function を用意した。
+**まず「生記事のまま」投入**（子ども向けのルビ付与・やさしい言い換えは後フェーズの Gemini で対応）。
+
+- 実装: `functions/src/index.ts` の `fetchNews`（v2 `onCall`、`asia-northeast1`）。
+  GNews `top-headlines?lang=ja&country=jp&max=10` を取得し、`WriteBatch` で
+  `news_pool/{id}`（id=記事 URL の sha1 先頭16桁）と呼び出しユーザーの
+  `users/{uid}/personalized_feed/{id}` を書き込む。Admin SDK のためルールはバイパス
+- マッピング: `original_title`=title / `parent_summary`=description /
+  `child_body_with_ruby`=content（ルビ無し）。`image` があれば
+  `thumbnail_config.mode=generated`+URL（`FeedThumbnail` が NetworkImage 表示）
+- アプリ側: `core/firebase/news_fetch_service.dart`（`fetchNews` callable 呼び出し）、
+  `functionsProvider`、ドロワー **「ニュース取得 (GNews)」** タイル。取得後に3画面を invalidate
+
+**デプロイに必要な手順（未実施なら要対応）:**
+1. **Blaze プラン**（Functions / Secret Manager / 外部API通信に必須。アップグレード済み）
+2. **GNews API キー**を取得（https://gnews.io 無料サインアップ・100req/日）
+3. シークレット登録: `firebase functions:secrets:set GNEWS_API_KEY`（対話でキーを貼り付け）
+4. デプロイ: `firebase deploy --only functions`
+5. 実機でログイン → ドロワー「ニュース取得 (GNews)」→「N 件取得しました」
+
+**注意:** GNews 無料枠は `content` が途中まで（数百字）。定期実行（Cloud Scheduler）は未導入で、
+現状は手動トリガのみ。
 
 ---
 

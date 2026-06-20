@@ -1,0 +1,6 @@
+node_modules/
+lib/
+*.local
+.env
+ui-debug.log
+firebase-debug.log

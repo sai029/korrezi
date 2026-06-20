@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -14,6 +15,11 @@ final firestoreProvider =
 
 /// Firebase Auth インスタンス。
 final authProvider = Provider<FirebaseAuth>((ref) => FirebaseAuth.instance);
+
+/// Cloud Functions インスタンス（関数は東京リージョンにデプロイ）。
+final functionsProvider = Provider<FirebaseFunctions>(
+  (ref) => FirebaseFunctions.instanceFor(region: 'asia-northeast1'),
+);
 
 /// Firebase/Auth が使えないときに使うローカル開発用のユーザー ID。
 const String devUserId = 'dev_local_user';
