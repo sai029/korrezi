@@ -60,7 +60,7 @@ class _FeedThumbnailState extends State<FeedThumbnail> {
             : DecorationImage(
                 image: provider,
                 fit: BoxFit.cover,
-                onError: (_, __) {
+                onError: (e, _) {
                   if (mounted) setState(() => _imageError = true);
                 },
               ),

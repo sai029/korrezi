@@ -32,9 +32,24 @@ mixin _$NewsPool {
   String get parentSummary => throw _privateConstructorUsedError;
 
   /// 子ども向けに書き直し、ルビ markup を埋め込んだ本文。
-  /// 例: `〔世界｜せかい〕の〔環境｜かんきょう〕を守るルールが...`
   @JsonKey(name: 'child_body_with_ruby')
   String get childBodyWithRuby => throw _privateConstructorUsedError;
+
+  /// Gemini が生成した子ども向けタイトル。
+  @JsonKey(name: 'display_title')
+  String get displayTitle => throw _privateConstructorUsedError;
+
+  /// Gemini が生成したキャッチコピー。
+  @JsonKey(name: 'display_tagline')
+  String get displayTagline => throw _privateConstructorUsedError;
+
+  /// 出典名（例: "NHK ニュース"）。interest_profile のスコアキーとして使用。
+  @JsonKey(name: 'interest_context')
+  String get interestContext => throw _privateConstructorUsedError;
+
+  /// サムネイル設定。画像があれば generated モード、なければ text_overlay。
+  @JsonKey(name: 'thumbnail_config')
+  ThumbnailConfig get thumbnailConfig => throw _privateConstructorUsedError;
 
   /// Serializes this NewsPool to a JSON map.
   Map<String, dynamic> toJson() => throw _privateConstructorUsedError;
@@ -56,7 +71,13 @@ abstract class $NewsPoolCopyWith<$Res> {
     @TimestampConverter() @JsonKey(name: 'published_at') DateTime publishedAt,
     @JsonKey(name: 'parent_summary') String parentSummary,
     @JsonKey(name: 'child_body_with_ruby') String childBodyWithRuby,
+    @JsonKey(name: 'display_title') String displayTitle,
+    @JsonKey(name: 'display_tagline') String displayTagline,
+    @JsonKey(name: 'interest_context') String interestContext,
+    @JsonKey(name: 'thumbnail_config') ThumbnailConfig thumbnailConfig,
   });
+
+  $ThumbnailConfigCopyWith<$Res> get thumbnailConfig;
 }
 
 /// @nodoc
@@ -78,6 +99,10 @@ class _$NewsPoolCopyWithImpl<$Res, $Val extends NewsPool>
     Object? publishedAt = null,
     Object? parentSummary = null,
     Object? childBodyWithRuby = null,
+    Object? displayTitle = null,
+    Object? displayTagline = null,
+    Object? interestContext = null,
+    Object? thumbnailConfig = null,
   }) {
     return _then(
       _value.copyWith(
@@ -97,9 +122,35 @@ class _$NewsPoolCopyWithImpl<$Res, $Val extends NewsPool>
                 ? _value.childBodyWithRuby
                 : childBodyWithRuby // ignore: cast_nullable_to_non_nullable
                       as String,
+            displayTitle: null == displayTitle
+                ? _value.displayTitle
+                : displayTitle // ignore: cast_nullable_to_non_nullable
+                      as String,
+            displayTagline: null == displayTagline
+                ? _value.displayTagline
+                : displayTagline // ignore: cast_nullable_to_non_nullable
+                      as String,
+            interestContext: null == interestContext
+                ? _value.interestContext
+                : interestContext // ignore: cast_nullable_to_non_nullable
+                      as String,
+            thumbnailConfig: null == thumbnailConfig
+                ? _value.thumbnailConfig
+                : thumbnailConfig // ignore: cast_nullable_to_non_nullable
+                      as ThumbnailConfig,
           )
           as $Val,
     );
+  }
+
+  /// Create a copy of NewsPool
+  /// with the given fields replaced by the non-null parameter values.
+  @override
+  @pragma('vm:prefer-inline')
+  $ThumbnailConfigCopyWith<$Res> get thumbnailConfig {
+    return $ThumbnailConfigCopyWith<$Res>(_value.thumbnailConfig, (value) {
+      return _then(_value.copyWith(thumbnailConfig: value) as $Val);
+    });
   }
 }
 
@@ -117,7 +168,14 @@ abstract class _$$NewsPoolImplCopyWith<$Res>
     @TimestampConverter() @JsonKey(name: 'published_at') DateTime publishedAt,
     @JsonKey(name: 'parent_summary') String parentSummary,
     @JsonKey(name: 'child_body_with_ruby') String childBodyWithRuby,
+    @JsonKey(name: 'display_title') String displayTitle,
+    @JsonKey(name: 'display_tagline') String displayTagline,
+    @JsonKey(name: 'interest_context') String interestContext,
+    @JsonKey(name: 'thumbnail_config') ThumbnailConfig thumbnailConfig,
   });
+
+  @override
+  $ThumbnailConfigCopyWith<$Res> get thumbnailConfig;
 }
 
 /// @nodoc
@@ -138,6 +196,10 @@ class __$$NewsPoolImplCopyWithImpl<$Res>
     Object? publishedAt = null,
     Object? parentSummary = null,
     Object? childBodyWithRuby = null,
+    Object? displayTitle = null,
+    Object? displayTagline = null,
+    Object? interestContext = null,
+    Object? thumbnailConfig = null,
   }) {
     return _then(
       _$NewsPoolImpl(
@@ -157,6 +219,22 @@ class __$$NewsPoolImplCopyWithImpl<$Res>
             ? _value.childBodyWithRuby
             : childBodyWithRuby // ignore: cast_nullable_to_non_nullable
                   as String,
+        displayTitle: null == displayTitle
+            ? _value.displayTitle
+            : displayTitle // ignore: cast_nullable_to_non_nullable
+                  as String,
+        displayTagline: null == displayTagline
+            ? _value.displayTagline
+            : displayTagline // ignore: cast_nullable_to_non_nullable
+                  as String,
+        interestContext: null == interestContext
+            ? _value.interestContext
+            : interestContext // ignore: cast_nullable_to_non_nullable
+                  as String,
+        thumbnailConfig: null == thumbnailConfig
+            ? _value.thumbnailConfig
+            : thumbnailConfig // ignore: cast_nullable_to_non_nullable
+                  as ThumbnailConfig,
       ),
     );
   }
@@ -172,6 +250,11 @@ class _$NewsPoolImpl implements _NewsPool {
     required this.publishedAt,
     @JsonKey(name: 'parent_summary') required this.parentSummary,
     @JsonKey(name: 'child_body_with_ruby') required this.childBodyWithRuby,
+    @JsonKey(name: 'display_title') this.displayTitle = '',
+    @JsonKey(name: 'display_tagline') this.displayTagline = '',
+    @JsonKey(name: 'interest_context') this.interestContext = 'ニュース',
+    @JsonKey(name: 'thumbnail_config')
+    this.thumbnailConfig = const ThumbnailConfig(),
   });
 
   factory _$NewsPoolImpl.fromJson(Map<String, dynamic> json) =>
@@ -191,14 +274,33 @@ class _$NewsPoolImpl implements _NewsPool {
   final String parentSummary;
 
   /// 子ども向けに書き直し、ルビ markup を埋め込んだ本文。
-  /// 例: `〔世界｜せかい〕の〔環境｜かんきょう〕を守るルールが...`
   @override
   @JsonKey(name: 'child_body_with_ruby')
   final String childBodyWithRuby;
 
+  /// Gemini が生成した子ども向けタイトル。
+  @override
+  @JsonKey(name: 'display_title')
+  final String displayTitle;
+
+  /// Gemini が生成したキャッチコピー。
+  @override
+  @JsonKey(name: 'display_tagline')
+  final String displayTagline;
+
+  /// 出典名（例: "NHK ニュース"）。interest_profile のスコアキーとして使用。
+  @override
+  @JsonKey(name: 'interest_context')
+  final String interestContext;
+
+  /// サムネイル設定。画像があれば generated モード、なければ text_overlay。
+  @override
+  @JsonKey(name: 'thumbnail_config')
+  final ThumbnailConfig thumbnailConfig;
+
   @override
   String toString() {
-    return 'NewsPool(originalTitle: $originalTitle, publishedAt: $publishedAt, parentSummary: $parentSummary, childBodyWithRuby: $childBodyWithRuby)';
+    return 'NewsPool(originalTitle: $originalTitle, publishedAt: $publishedAt, parentSummary: $parentSummary, childBodyWithRuby: $childBodyWithRuby, displayTitle: $displayTitle, displayTagline: $displayTagline, interestContext: $interestContext, thumbnailConfig: $thumbnailConfig)';
   }
 
   @override
@@ -213,7 +315,15 @@ class _$NewsPoolImpl implements _NewsPool {
             (identical(other.parentSummary, parentSummary) ||
                 other.parentSummary == parentSummary) &&
             (identical(other.childBodyWithRuby, childBodyWithRuby) ||
-                other.childBodyWithRuby == childBodyWithRuby));
+                other.childBodyWithRuby == childBodyWithRuby) &&
+            (identical(other.displayTitle, displayTitle) ||
+                other.displayTitle == displayTitle) &&
+            (identical(other.displayTagline, displayTagline) ||
+                other.displayTagline == displayTagline) &&
+            (identical(other.interestContext, interestContext) ||
+                other.interestContext == interestContext) &&
+            (identical(other.thumbnailConfig, thumbnailConfig) ||
+                other.thumbnailConfig == thumbnailConfig));
   }
 
   @JsonKey(includeFromJson: false, includeToJson: false)
@@ -224,6 +334,10 @@ class _$NewsPoolImpl implements _NewsPool {
     publishedAt,
     parentSummary,
     childBodyWithRuby,
+    displayTitle,
+    displayTagline,
+    interestContext,
+    thumbnailConfig,
   );
 
   /// Create a copy of NewsPool
@@ -249,6 +363,10 @@ abstract class _NewsPool implements NewsPool {
     @JsonKey(name: 'parent_summary') required final String parentSummary,
     @JsonKey(name: 'child_body_with_ruby')
     required final String childBodyWithRuby,
+    @JsonKey(name: 'display_title') final String displayTitle,
+    @JsonKey(name: 'display_tagline') final String displayTagline,
+    @JsonKey(name: 'interest_context') final String interestContext,
+    @JsonKey(name: 'thumbnail_config') final ThumbnailConfig thumbnailConfig,
   }) = _$NewsPoolImpl;
 
   factory _NewsPool.fromJson(Map<String, dynamic> json) =
@@ -268,10 +386,29 @@ abstract class _NewsPool implements NewsPool {
   String get parentSummary;
 
   /// 子ども向けに書き直し、ルビ markup を埋め込んだ本文。
-  /// 例: `〔世界｜せかい〕の〔環境｜かんきょう〕を守るルールが...`
   @override
   @JsonKey(name: 'child_body_with_ruby')
   String get childBodyWithRuby;
+
+  /// Gemini が生成した子ども向けタイトル。
+  @override
+  @JsonKey(name: 'display_title')
+  String get displayTitle;
+
+  /// Gemini が生成したキャッチコピー。
+  @override
+  @JsonKey(name: 'display_tagline')
+  String get displayTagline;
+
+  /// 出典名（例: "NHK ニュース"）。interest_profile のスコアキーとして使用。
+  @override
+  @JsonKey(name: 'interest_context')
+  String get interestContext;
+
+  /// サムネイル設定。画像があれば generated モード、なければ text_overlay。
+  @override
+  @JsonKey(name: 'thumbnail_config')
+  ThumbnailConfig get thumbnailConfig;
 
   /// Create a copy of NewsPool
   /// with the given fields replaced by the non-null parameter values.

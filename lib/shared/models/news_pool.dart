@@ -1,13 +1,15 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'converters.dart';
+import 'personalized_feed_item.dart';
 
 part 'news_pool.freezed.dart';
 part 'news_pool.g.dart';
 
 /// Firestore `/news_pool/{newsId}` に対応するモデル。
 ///
-/// 1日1回の Curated Global Batch で Gemini が生成する、全ユーザー共通の元記事。
+/// 全ユーザー共通の記事プール。Gemini が生成した子ども向け表示データも含む。
+/// フィードは news_pool を直接読むため、新規ユーザーでも即座に記事が表示される。
 @freezed
 class NewsPool with _$NewsPool {
   const factory NewsPool({
@@ -20,8 +22,21 @@ class NewsPool with _$NewsPool {
     @JsonKey(name: 'parent_summary') required String parentSummary,
 
     /// 子ども向けに書き直し、ルビ markup を埋め込んだ本文。
-    /// 例: `〔世界｜せかい〕の〔環境｜かんきょう〕を守るルールが...`
     @JsonKey(name: 'child_body_with_ruby') required String childBodyWithRuby,
+
+    /// Gemini が生成した子ども向けタイトル。
+    @JsonKey(name: 'display_title') @Default('') String displayTitle,
+
+    /// Gemini が生成したキャッチコピー。
+    @JsonKey(name: 'display_tagline') @Default('') String displayTagline,
+
+    /// 出典名（例: "NHK ニュース"）。interest_profile のスコアキーとして使用。
+    @JsonKey(name: 'interest_context') @Default('ニュース') String interestContext,
+
+    /// サムネイル設定。画像があれば generated モード、なければ text_overlay。
+    @JsonKey(name: 'thumbnail_config')
+    @Default(ThumbnailConfig())
+    ThumbnailConfig thumbnailConfig,
   }) = _NewsPool;
 
   factory NewsPool.fromJson(Map<String, dynamic> json) =>

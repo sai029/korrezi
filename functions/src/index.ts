@@ -200,36 +200,25 @@ export const fetchNews = onCall(
       const id = newsIdFromUrl(a.url);
       const cf = converted[i];
 
-      // /news_pool/{id} … firestore_seeder と同じ snake_case スキーマ。
-      batch.set(db.collection("news_pool").doc(id), {
-        original_title: a.title,
-        published_at: Timestamp.fromDate(new Date(a.publishedAt)),
-        parent_summary: cf.parentSummary,
-        child_body_with_ruby: cf.childBodyWithRuby,
-      });
-
       // 画像があれば generated モードで NetworkImage 表示、無ければ text_overlay。
       const image = a.image ?? "";
       const thumbnailConfig = image
         ? { mode: "generated", base_asset: "", optional_generated_url: image }
         : { mode: "text_overlay", base_asset: "", optional_generated_url: "" };
 
-      batch.set(
-        db
-          .collection("users")
-          .doc(uid)
-          .collection("personalized_feed")
-          .doc(id),
-        {
-          news_id: id,
-          interest_context: a.source?.name ?? "ニュース",
-          display_title: cf.displayTitle,
-          display_tagline: cf.displayTagline,
-          thumbnail_config: thumbnailConfig,
-          is_viewed: false,
-          view_duration_seconds: 0,
-        },
-      );
+      // /news_pool/{id} … 全ユーザー共通の表示データ。
+      // personalized_feed は個人テレメトリ（recordView）のみに使い、
+      // Cloud Functions からは書き込まない。
+      batch.set(db.collection("news_pool").doc(id), {
+        original_title: a.title,
+        published_at: Timestamp.fromDate(new Date(a.publishedAt)),
+        parent_summary: cf.parentSummary,
+        child_body_with_ruby: cf.childBodyWithRuby,
+        display_title: cf.displayTitle,
+        display_tagline: cf.displayTagline,
+        thumbnail_config: thumbnailConfig,
+        interest_context: a.source?.name ?? "ニュース",
+      });
     });
 
     await batch.commit();
@@ -291,11 +280,19 @@ export const refreshNewsPool = onSchedule(
     articles.forEach((a, i) => {
       const id = newsIdFromUrl(a.url);
       const cf = converted[i];
+      const image = a.image ?? "";
+      const thumbnailConfig = image
+        ? { mode: "generated", base_asset: "", optional_generated_url: image }
+        : { mode: "text_overlay", base_asset: "", optional_generated_url: "" };
       batch.set(db.collection("news_pool").doc(id), {
         original_title: a.title,
         published_at: Timestamp.fromDate(new Date(a.publishedAt)),
         parent_summary: cf.parentSummary,
         child_body_with_ruby: cf.childBodyWithRuby,
+        display_title: cf.displayTitle,
+        display_tagline: cf.displayTagline,
+        thumbnail_config: thumbnailConfig,
+        interest_context: a.source?.name ?? "ニュース",
       });
     });
 

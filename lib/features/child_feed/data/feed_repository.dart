@@ -2,12 +2,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/firebase/firebase_providers.dart';
+import '../../../shared/models/news_pool.dart';
 import '../../../shared/models/personalized_feed_item.dart';
 
-/// Firestore `/users/{userId}/personalized_feed` を扱うリポジトリ。
+/// フィードの取得とテレメトリ書き込みを担うリポジトリ。
 ///
-/// Child Mode のパーソナライズフィードの取得と、Telemetry Agent による
-/// 閲覧ログ（view_duration_seconds / is_viewed）の書き込みを担う。
+/// 読み取り: `/news_pool` — 全ユーザー共通のため新規ユーザーでも即座に表示。
+/// 書き込み: `/users/{userId}/personalized_feed` — 閲覧ログのみ（テレメトリ）。
+///           `/users/{userId}/interest_profile` — 関心スコア。
 class FeedRepository {
   FeedRepository(this._db);
 
@@ -16,12 +18,26 @@ class FeedRepository {
   CollectionReference<Map<String, dynamic>> _feedRef(String userId) =>
       _db.collection('users').doc(userId).collection('personalized_feed');
 
-  /// パーソナライズフィードを1回取得する。
+  /// news_pool から全記事を取得して PersonalizedFeedItem に変換する。
+  ///
+  /// 新規ユーザーも personalized_feed の有無に関係なく即座に表示できる。
   Future<List<PersonalizedFeedItem>> fetchFeed(String userId) async {
-    final snap = await _feedRef(userId).get();
-    return snap.docs
-        .map((d) => PersonalizedFeedItem.fromJson(d.data()))
-        .toList();
+    final snap = await _db
+        .collection('news_pool')
+        .orderBy('published_at', descending: true)
+        .limit(20)
+        .get();
+    return snap.docs.map((d) {
+      final pool = NewsPool.fromJson(d.data());
+      return PersonalizedFeedItem(
+        newsId: d.id,
+        interestContext: pool.interestContext,
+        displayTitle:
+            pool.displayTitle.isNotEmpty ? pool.displayTitle : pool.originalTitle,
+        displayTagline: pool.displayTagline,
+        thumbnailConfig: pool.thumbnailConfig,
+      );
+    }).toList();
   }
 
   /// Telemetry Agent: 記事の閲覧秒数と閲覧済みフラグを記録する。
