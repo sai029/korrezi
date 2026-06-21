@@ -1,20 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../../core/auth/auth_service.dart';
 import '../../core/firebase/firebase_providers.dart';
 import '../../core/firebase/firestore_seeder.dart';
 import '../../core/firebase/news_fetch_service.dart';
+import '../../core/theme/tokens.dart';
 import '../../features/child_feed/application/child_feed_provider.dart';
 import '../../features/common_view/application/common_view_provider.dart';
 import '../../features/parent_dashboard/application/parent_dashboard_provider.dart';
 
 /// 開発用のモード切替ナビゲーション。
-///
-/// 本番ではデバイス（タブレット/スマホ）と向きでモードが決まるが、開発中は
-/// 1画面で3モードを行き来できるよう Drawer で導線を提供する。
-/// あわせて Firestore へサンプルデータを投入する dev アクションも持つ。
 class AppDrawer extends ConsumerWidget {
   const AppDrawer({super.key});
 
@@ -26,14 +24,19 @@ class AppDrawer extends ConsumerWidget {
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
+          // ヘッダー: brandPrimary 背景、ロゴは M PLUS Rounded 1c
           DrawerHeader(
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primaryContainer,
-            ),
-            child: const Align(
+            decoration: const BoxDecoration(color: AppColors.brandPrimary),
+            child: Align(
               alignment: Alignment.bottomLeft,
-              child: Text('AI Discovery\nLearning App',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              child: Text(
+                'AI Discovery\nLearning App',
+                style: GoogleFonts.mPlusRounded1c(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.brandPrimaryInk,
+                ),
+              ),
             ),
           ),
           _tile(context, current, '/child', Icons.dynamic_feed,
@@ -61,7 +64,6 @@ class AppDrawer extends ConsumerWidget {
     );
   }
 
-  /// ログイン中ユーザーの表示とログアウト。
   Widget _authTile(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authStateProvider).valueOrNull;
     if (user == null) return const SizedBox.shrink();
@@ -76,7 +78,6 @@ class AppDrawer extends ConsumerWidget {
       onTap: () async {
         Navigator.pop(context);
         await ref.read(authServiceProvider).signOut();
-        // 以降はルーターの redirect が /login へ戻す。
       },
     );
   }
@@ -85,10 +86,11 @@ class AppDrawer extends ConsumerWidget {
       IconData icon, String title, String subtitle) {
     final selected = current == path;
     return ListTile(
-      leading: Icon(icon),
+      leading: Icon(icon, color: selected ? AppColors.brandPrimary : null),
       title: Text(title),
       subtitle: Text(subtitle),
       selected: selected,
+      selectedColor: AppColors.brandPrimary,
       onTap: () {
         Navigator.pop(context);
         if (!selected) context.go(path);
@@ -96,11 +98,8 @@ class AppDrawer extends ConsumerWidget {
     );
   }
 
-  /// Firestore へサンプルデータを投入し、各プロバイダを再取得させる。
   Future<void> _seed(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.of(context);
-    // pop でドロワーが破棄されると WidgetRef は使えなくなるため、アプリ寿命の
-    // コンテナを pop 前に取得して以降はそれを使う。
     final container = ProviderScope.containerOf(context, listen: false);
     Navigator.pop(context);
 
@@ -117,12 +116,9 @@ class AppDrawer extends ConsumerWidget {
     try {
       final userId = container.read(currentUserIdProvider);
       await container.read(firestoreSeederProvider).seedAll(userId);
-
-      // 投入後に各画面のデータを再取得させる。
       container.invalidate(childFeedProvider);
       container.invalidate(commonViewProvider);
       container.invalidate(parentDashboardProvider);
-
       messenger.showSnackBar(
         const SnackBar(content: Text('投入しました。各画面に反映されます。')),
       );
@@ -133,11 +129,8 @@ class AppDrawer extends ConsumerWidget {
     }
   }
 
-  /// GNews の実記事を Cloud Functions 経由で取り込み、各プロバイダを再取得させる。
   Future<void> _fetchNews(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.of(context);
-    // ネットワーク往復の await をまたぐ間に pop でドロワーが破棄されるため、
-    // アプリ寿命のコンテナを pop 前に取得して以降はそれを使う。
     final container = ProviderScope.containerOf(context, listen: false);
     Navigator.pop(context);
 
@@ -153,12 +146,9 @@ class AppDrawer extends ConsumerWidget {
     );
     try {
       final count = await container.read(newsFetchServiceProvider).fetchNews();
-
-      // 取得後に各画面のデータを再取得させる。
       container.invalidate(childFeedProvider);
       container.invalidate(commonViewProvider);
       container.invalidate(parentDashboardProvider);
-
       messenger.showSnackBar(
         SnackBar(content: Text('$count 件取得しました。各画面に反映されます。')),
       );
