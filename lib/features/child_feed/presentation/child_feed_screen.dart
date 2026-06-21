@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/tokens.dart';
 import '../../../shared/models/personalized_feed_item.dart';
 import '../../../shared/widgets/app_drawer.dart';
+import '../../../shared/widgets/bouncy_tap.dart';
 import '../../../shared/widgets/feed_thumbnail.dart';
 import '../application/child_feed_provider.dart';
 
-/// Child Mode (タブレット・縦) — TikTok風エンドレス縦スクロールフィード。
+/// Child Mode (タブレット・縦) TikTok風エンドレス縦スクロールフィード。
 ///
 /// `PageView.builder(scrollDirection: Axis.vertical)` で1記事=1ページの没入型UI。
 /// ページ滞在時間を計測し、Telemetry Agent (recordView) へ送る。
@@ -36,7 +38,6 @@ class _ChildFeedScreenState extends ConsumerState<ChildFeedScreen> {
     super.dispose();
   }
 
-  /// 直前ページの滞在秒数を Telemetry として記録する。
   void _flushCurrentDuration() {
     final id = _currentNewsId;
     if (id == null) return;
@@ -48,7 +49,6 @@ class _ChildFeedScreenState extends ConsumerState<ChildFeedScreen> {
 
   void _onPageChanged(List<PersonalizedFeedItem> feed, int index) {
     _flushCurrentDuration();
-    // 破棄後（アニメーション余波での発火）は状態更新しない。
     if (!mounted) return;
     setState(() {
       _currentNewsId = feed[index].newsId;
@@ -58,7 +58,6 @@ class _ChildFeedScreenState extends ConsumerState<ChildFeedScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 破棄後にも参照できるよう notifier を保持しておく。
     _feedNotifier = ref.read(childFeedProvider.notifier);
     final feedAsync = ref.watch(childFeedProvider);
 
@@ -80,13 +79,11 @@ class _ChildFeedScreenState extends ConsumerState<ChildFeedScreen> {
                       style: TextStyle(color: Colors.white)),
                 );
               }
-              // 初回ページの計測を開始。
               _currentNewsId ??= feed.first.newsId;
 
               return PageView.builder(
                 controller: _controller,
                 scrollDirection: Axis.vertical,
-                // 軽いスワイプでも素早く次の記事へスナップする。
                 physics: const _FastPageScrollPhysics(),
                 itemCount: feed.length,
                 onPageChanged: (index) => _onPageChanged(feed, index),
@@ -94,7 +91,7 @@ class _ChildFeedScreenState extends ConsumerState<ChildFeedScreen> {
               );
             },
           ),
-          // 没入感を保ちつつ、左上に控えめなメニュー導線を重ねる。
+          // 没入感を保ちつつ、左上に控えめなメニューボタンを重ねる。
           SafeArea(
             child: Builder(
               builder: (context) => IconButton(
@@ -109,11 +106,7 @@ class _ChildFeedScreenState extends ConsumerState<ChildFeedScreen> {
   }
 }
 
-/// 反応の速いページスクロール物理。
-///
-/// - [spring]: 硬めのバネで、ページ切替のスナップを素早く完了させる。
-/// - [minFlingVelocity]: フリック判定の閾値を下げ、軽いスワイプでも切替を発火。
-/// - [dragStartDistanceMotionThreshold]: ドラッグ開始の遊びを減らして即応化。
+/// 反応の速いページスクロール物理。既存を維持。
 class _FastPageScrollPhysics extends PageScrollPhysics {
   const _FastPageScrollPhysics({super.parent});
 
@@ -126,14 +119,14 @@ class _FastPageScrollPhysics extends PageScrollPhysics {
   SpringDescription get spring => SpringDescription.withDampingRatio(
         mass: 0.3,
         stiffness: 360,
-        ratio: 1.1, // critically damped 寄りで素早く・オーバーシュートなし
+        ratio: 1.1,
       );
 
   @override
-  double get minFlingVelocity => 30.0; // 既定50より低くして軽い指弾きでも切替
+  double get minFlingVelocity => 30.0;
 
   @override
-  double get dragStartDistanceMotionThreshold => 1.5; // 既定3.5より小さく即応
+  double get dragStartDistanceMotionThreshold => 1.5;
 }
 
 /// 1記事分の没入型ページ（大型サムネ + テキストオーバーレイ + アクションフック）。
@@ -148,71 +141,85 @@ class _FeedPage extends StatelessWidget {
 
     return FeedThumbnail(
       config: item.thumbnailConfig,
-      // useGeneratedImages: true でImagen 3生成画像へ切替（コスト検証後）。
+      fallbackIcon: categoryIcon(item.interestContext),
       overlay: Stack(
         fit: StackFit.expand,
         children: [
-          // 下部を暗くしてテキストの可読性を確保するグラデーション。
+          // 下部グラデーション（transparent → ink900 @85%）
           const DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.center,
                 end: Alignment.bottomCenter,
-                colors: [Colors.transparent, Colors.black87],
+                colors: [Colors.transparent, Color(0xD91F1B2E)],
               ),
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(AppSpacing.space5),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.end,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 関心コンテキストのバッジ。
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    '#${item.interestContext}',
-                    style: textTheme.labelLarge
-                        ?.copyWith(color: Colors.white),
+                // カテゴリバッジ（ステッカー風）
+                BouncyTap(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.space3,
+                      vertical: AppSpacing.space1 + 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.brandPrimary,
+                      borderRadius: AppRadii.pill,
+                      boxShadow: AppElevation.elev1(),
+                    ),
+                    child: Text(
+                      '#${item.interestContext}',
+                      style: textTheme.labelLarge?.copyWith(
+                        color: AppColors.brandPrimaryInk,
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: AppSpacing.space4),
+                // タイトル（display / Rounded はテーマから自動適用）
                 Text(
                   item.displayTitle,
-                  style: textTheme.headlineSmall?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
+                  style: textTheme.displaySmall?.copyWith(
+                    color: AppColors.brandPrimaryInk,
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: AppSpacing.space2),
+                // タグライン
                 Text(
                   item.displayTagline,
-                  style: textTheme.bodyLarge
-                      ?.copyWith(color: Colors.white70),
+                  style: textTheme.bodyLarge?.copyWith(
+                    color: AppColors.brandPrimaryInk.withValues(alpha: 0.7),
+                  ),
                 ),
-                const SizedBox(height: 16),
-                // アクションフック（深掘り探索への入口）。
+                const SizedBox(height: AppSpacing.space4),
+                // アクション行
                 Row(
                   children: [
-                    FilledButton.icon(
-                      onPressed: () {
+                    BouncyTap(
+                      onTap: () {
                         // TODO: 記事リーダー（Common View）へ遷移。
                       },
-                      icon: const Icon(Icons.menu_book),
-                      label: const Text('よんでみる'),
+                      child: FilledButton.icon(
+                        onPressed: () {},
+                        icon: const Icon(Icons.menu_book),
+                        label: const Text('よんでみる'),
+                      ),
                     ),
-                    const SizedBox(width: 12),
-                    IconButton.filledTonal(
-                      onPressed: () {
-                        // TODO: 探索選択(もっと見たい)を Telemetry へ送る。
+                    const SizedBox(width: AppSpacing.space3),
+                    BouncyTap(
+                      onTap: () {
+                        // TODO: 記事お気に入り / Telemetry へ送る。
                       },
-                      icon: const Icon(Icons.favorite_border),
+                      child: IconButton.filledTonal(
+                        onPressed: () {},
+                        icon: const Icon(Icons.favorite_border),
+                      ),
                     ),
                   ],
                 ),

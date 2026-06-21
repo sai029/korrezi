@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/tokens.dart';
 import '../../../shared/models/news_pool.dart';
 import '../../../shared/widgets/app_drawer.dart';
 import '../../../shared/widgets/furigana_text.dart';
@@ -30,7 +31,8 @@ class CommonViewScreen extends ConsumerWidget {
           return LayoutBuilder(
             builder: (context, constraints) {
               final isWide = constraints.maxWidth >= 720;
-              final selected = ref.watch(selectedArticleIndexProvider)
+              final selected = ref
+                  .watch(selectedArticleIndexProvider)
                   .clamp(0, articles.length - 1);
 
               final nav = _NavigationGrid(
@@ -51,7 +53,6 @@ class CommonViewScreen extends ConsumerWidget {
                   ],
                 );
               }
-              // 狭い場合は縦に並べる（縦向き時のフォールバック）。
               return Column(
                 children: [
                   SizedBox(height: 160, child: nav),
@@ -68,6 +69,7 @@ class CommonViewScreen extends ConsumerWidget {
 }
 
 /// 左ペイン: 記事を選ぶ動的ナビゲーショングリッド。
+/// グリッドカード: radiusLg / 選択時背景 accent / elev1。
 class _NavigationGrid extends StatelessWidget {
   const _NavigationGrid({
     required this.articles,
@@ -82,35 +84,51 @@ class _NavigationGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final accent = scheme.secondary;
+
     return GridView.builder(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(AppSpacing.space3),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 200,
         childAspectRatio: 1.4,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
+        crossAxisSpacing: AppSpacing.space3,
+        mainAxisSpacing: AppSpacing.space3,
       ),
       itemCount: articles.length,
       itemBuilder: (context, i) {
         final selected = i == selectedIndex;
-        return InkWell(
+        return GestureDetector(
           onTap: () => onSelect(i),
-          borderRadius: BorderRadius.circular(16),
-          child: Card(
-            color: selected ? scheme.primaryContainer : null,
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  const Icon(Icons.article_outlined),
-                  const Spacer(),
-                  Text(articles[i].originalTitle,
-                      maxLines: 2, overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleMedium),
-                ],
-              ),
+          child: AnimatedContainer(
+            duration: AppMotion.durBase,
+            curve: AppMotion.curveStandard,
+            decoration: BoxDecoration(
+              color: selected
+                  ? accent.withValues(alpha: 0.2)
+                  : AppColors.surface,
+              borderRadius: AppRadii.lg,
+              border: selected
+                  ? Border.all(color: accent, width: 2)
+                  : Border.all(color: AppColors.ink300),
+              boxShadow: AppElevation.elev1(),
+            ),
+            padding: const EdgeInsets.all(AppSpacing.space3),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Icon(
+                  Icons.article_outlined,
+                  color: selected ? accent : AppColors.ink500,
+                ),
+                const Spacer(),
+                Text(
+                  articles[i].originalTitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ],
             ),
           ),
         );
@@ -120,6 +138,7 @@ class _NavigationGrid extends StatelessWidget {
 }
 
 /// 右ペイン: ルビ(Furigana)付きの記事リーダー。
+/// calm content 原則: 背景 surface / padding space6 / 行間 1.8 / 見出し Rounded・本文 Noto。
 class _ArticleReader extends StatelessWidget {
   const _ArticleReader({required this.article});
   final NewsPool article;
@@ -127,16 +146,23 @@ class _ArticleReader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(article.originalTitle, style: textTheme.headlineMedium),
-          const SizedBox(height: 24),
-          // child_body_with_ruby の markup をルビ表示。
-          FuriganaText(article.childBodyWithRuby, style: textTheme.headlineSmall),
-        ],
+    return ColoredBox(
+      color: AppColors.surface,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppSpacing.space6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 見出し: Rounded（テーマから自動適用）
+            Text(article.originalTitle, style: textTheme.headlineMedium),
+            const SizedBox(height: AppSpacing.space5),
+            // 本文: Noto Sans JP + 行間 1.8 を明示（calm content 厳守）
+            FuriganaText(
+              article.childBodyWithRuby,
+              style: textTheme.bodyLarge?.copyWith(height: 1.8),
+            ),
+          ],
+        ),
       ),
     );
   }
