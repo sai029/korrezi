@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../firebase/firebase_providers.dart';
@@ -18,6 +19,8 @@ class AuthService {
   /// なり得るため、呼び出し側で握りつぶす。
   Future<UserCredential> signInWithGoogle() {
     final provider = GoogleAuthProvider()..addScope('email');
+    // Web は signInWithProvider 未実装のため signInWithPopup を使う。
+    if (kIsWeb) return _auth.signInWithPopup(provider);
     return _auth.signInWithProvider(provider);
   }
 

@@ -4,11 +4,9 @@ import '../models/personalized_feed_item.dart';
 
 /// 画像抽象化レイヤー。
 ///
-/// プレゼンテーション層は具体的な画像取得方法を知らず、抽象的な [ImageProvider]
-/// だけを扱う。既定（text_overlay）はキャッシュ済みカテゴリイラストを背景にし、
-/// その上にAIテキストを重ねる。[useGeneratedImages] を true にすると、コスト検証後に
-/// Imagen 3 生成画像(URL)へシームレスに切り替えられる。
-class FeedThumbnail extends StatelessWidget {
+/// NetworkImage の読み込みに失敗した場合（CORS エラー含む）は
+/// グラデーション背景へ自動フォールバックする。
+class FeedThumbnail extends StatefulWidget {
   const FeedThumbnail({
     super.key,
     required this.config,
@@ -17,25 +15,36 @@ class FeedThumbnail extends StatelessWidget {
   });
 
   final ThumbnailConfig config;
-
-  /// true で Imagen 3 生成画像(URL)を優先する切替フラグ（既定は false=イラスト）。
   final bool useGeneratedImages;
-
-  /// 画像の上に重ねるAIテキスト等のウィジェット。
   final Widget? overlay;
 
-  /// 設定とトグルから、使用する [ImageProvider] を解決する。
-  /// 生成画像が有効かつURLがあれば NetworkImage、それ以外はカテゴリ AssetImage。
+  @override
+  State<FeedThumbnail> createState() => _FeedThumbnailState();
+}
+
+class _FeedThumbnailState extends State<FeedThumbnail> {
+  bool _imageError = false;
+
   ImageProvider? _resolveProvider() {
-    final wantsGenerated = useGeneratedImages ||
-        config.mode == ThumbnailMode.generated;
-    if (wantsGenerated && config.optionalGeneratedUrl.isNotEmpty) {
-      return NetworkImage(config.optionalGeneratedUrl);
+    if (_imageError) return null;
+    final wantsGenerated = widget.useGeneratedImages ||
+        widget.config.mode == ThumbnailMode.generated;
+    if (wantsGenerated && widget.config.optionalGeneratedUrl.isNotEmpty) {
+      return NetworkImage(widget.config.optionalGeneratedUrl);
     }
-    if (config.baseAsset.isNotEmpty) {
-      return AssetImage(config.baseAsset);
+    if (widget.config.baseAsset.isNotEmpty) {
+      return AssetImage(widget.config.baseAsset);
     }
     return null;
+  }
+
+  @override
+  void didUpdateWidget(FeedThumbnail old) {
+    super.didUpdateWidget(old);
+    if (old.config.optionalGeneratedUrl !=
+        widget.config.optionalGeneratedUrl) {
+      setState(() => _imageError = false);
+    }
   }
 
   @override
@@ -51,8 +60,9 @@ class FeedThumbnail extends StatelessWidget {
             : DecorationImage(
                 image: provider,
                 fit: BoxFit.cover,
-                // アセット未配置/URL失敗時はグラデーション背景にフォールバック。
-                onError: (error, stackTrace) {},
+                onError: (_, __) {
+                  if (mounted) setState(() => _imageError = true);
+                },
               ),
         gradient: provider == null
             ? LinearGradient(
@@ -62,7 +72,7 @@ class FeedThumbnail extends StatelessWidget {
               )
             : null,
       ),
-      child: overlay,
+      child: widget.overlay,
     );
   }
 }
