@@ -35,6 +35,13 @@ class ChildFeedNotifier extends AsyncNotifier<List<PersonalizedFeedItem>> {
   /// view_duration_seconds / is_viewed を反映する。
   Future<void> recordView(String newsId, int durationSeconds) async {
     final current = state.valueOrNull;
+
+    // interestContext はローカル状態から非同期ギャップの前に取得する。
+    final interestContext = current
+        ?.where((i) => i.newsId == newsId)
+        .firstOrNull
+        ?.interestContext;
+
     if (current != null) {
       state = AsyncData([
         for (final item in current)
@@ -53,6 +60,10 @@ class ChildFeedNotifier extends AsyncNotifier<List<PersonalizedFeedItem>> {
     if (repo == null || userId == null) return;
     try {
       await repo.recordView(userId, newsId, durationSeconds);
+      // 3秒以上見た記事のカテゴリだけスコアに加算（誤スワイプを除外）。
+      if (interestContext != null && durationSeconds >= 3) {
+        await repo.recordInterest(userId, interestContext, durationSeconds);
+      }
     } catch (_) {
       // オフライン等は無視（ローカル状態は更新済み）。
     }

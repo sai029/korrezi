@@ -40,6 +40,32 @@ class FeedRepository {
       SetOptions(merge: true),
     );
   }
+
+  /// Analytics Agent: 関心カテゴリのスコアを滞在秒数分だけ加算する。
+  ///
+  /// `interest_profile/current` の `current_interests.{context}` を
+  /// インクリメントする。ドキュメントが未作成でも自動生成される。
+  Future<void> recordInterest(
+    String userId,
+    String interestContext,
+    int durationSeconds,
+  ) async {
+    await _db
+        .collection('users')
+        .doc(userId)
+        .collection('interest_profile')
+        .doc('current')
+        .set(
+          {
+            'current_interests': {
+              interestContext: FieldValue.increment(durationSeconds),
+            },
+          },
+          SetOptions(
+            mergeFields: [FieldPath(['current_interests', interestContext])],
+          ),
+        );
+  }
 }
 
 final feedRepositoryProvider = Provider<FeedRepository>(
