@@ -6,6 +6,7 @@ import { setGlobalOptions } from "firebase-functions/v2";
 import { defineSecret } from "firebase-functions/params";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions";
+import { VertexAI } from "@google-cloud/vertexai";
 
 initializeApp();
 
@@ -14,6 +15,11 @@ setGlobalOptions({ region: "asia-northeast1" });
 
 // GNews.io の API キー。`firebase functions:secrets:set GNEWS_API_KEY` で登録する。
 const GNEWS_API_KEY = defineSecret("GNEWS_API_KEY");
+
+// Vertex AI（Gemini）の設定。認証は関数の実行サービスアカウント（ADC）を使うため
+// API キーは不要。モデルが広く利用可能な us-central1 を既定にする。
+const VERTEX_LOCATION = "us-central1";
+const GEMINI_MODEL = "gemini-2.5-flash";
 
 /** GNews API のレスポンス記事。 */
 interface GNewsArticle {
@@ -31,6 +37,14 @@ interface GNewsResponse {
   articles: GNewsArticle[];
 }
 
+/** Gemini が返す子ども向け変換結果。 */
+interface ChildFriendly {
+  displayTitle: string;
+  displayTagline: string;
+  childBodyWithRuby: string;
+  parentSummary: string;
+}
+
 /** 記事 URL から安定した doc id を作る（再取得時は冪等に上書き）。 */
 function newsIdFromUrl(url: string): string {
   const hash = createHash("sha1").update(url).digest("hex").slice(0, 16);
@@ -44,16 +58,98 @@ function toTagline(description: string | null): string {
   return `${text.slice(0, 79)}…`;
 }
 
+/** Gemini 変換に失敗したときの素朴なフォールバック（生記事のまま）。 */
+function rawFallback(a: GNewsArticle): ChildFriendly {
+  return {
+    displayTitle: a.title,
+    displayTagline: toTagline(a.description),
+    childBodyWithRuby: a.content ?? a.description ?? "",
+    parentSummary: a.description ?? "",
+  };
+}
+
+// Vertex AI クライアントは関数インスタンス内で使い回す。
+let cachedModel: ReturnType<VertexAI["getGenerativeModel"]> | null = null;
+function getGeminiModel() {
+  if (cachedModel) return cachedModel;
+  const project = process.env.GCLOUD_PROJECT;
+  const vertex = new VertexAI({ project, location: VERTEX_LOCATION });
+  cachedModel = vertex.getGenerativeModel({
+    model: GEMINI_MODEL,
+    generationConfig: {
+      temperature: 0.7,
+      responseMimeType: "application/json",
+    },
+  });
+  return cachedModel;
+}
+
 /**
- * GNews から日本語トップ記事を取得し、Firestore へ「生記事のまま」書き込む。
+ * 1記事を子ども向け（やさしい言葉＋ルビ）に変換する。
  *
- * - `/news_pool/{id}`                     … 全ユーザー共通の元記事
+ * ルビは `〔漢字｜よみ〕` markup（アプリの FuriganaText が解釈する形式）で埋め込む。
+ * 失敗時は生記事へフォールバックして処理を止めない。
+ */
+async function toChildFriendly(a: GNewsArticle): Promise<ChildFriendly> {
+  const source = [
+    `タイトル: ${a.title}`,
+    `概要: ${a.description ?? ""}`,
+    `本文: ${a.content ?? ""}`,
+  ].join("\n");
+
+  const prompt = [
+    "あなたは小学生向けニュースの編集者です。次のニュース記事を、6〜10歳の子どもが",
+    "読めるように、やさしい日本語で書き直してください。難しい言葉は避け、",
+    "短い文にします。事実は変えないでください。",
+    "",
+    "出力は必ず次の4キーを持つJSONだけにしてください（前後に説明文を付けない）:",
+    '- "display_title": 子ども向けの短いタイトル（20文字以内・記号や煽りは不要）',
+    '- "display_tagline": 興味を引く一言（30文字以内）',
+    '- "child_body_with_ruby": 本文（2〜4文）。小学校で習わない漢字には',
+    "  〔漢字｜よみ〕 の形式でルビを付ける（例: 〔環境｜かんきょう〕）。ひらがなだけにしない。",
+    '- "parent_summary": 保護者向けの箇条書き要約。各行を「・」で始め、2〜3項目。',
+    "",
+    "記事:",
+    source,
+  ].join("\n");
+
+  try {
+    const model = getGeminiModel();
+    const result = await model.generateContent({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+    });
+    const text =
+      result.response.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+
+    const pick = (k: string, fallback: string): string => {
+      const v = parsed[k];
+      return typeof v === "string" && v.trim().length > 0 ? v.trim() : fallback;
+    };
+    const fb = rawFallback(a);
+    return {
+      displayTitle: pick("display_title", fb.displayTitle),
+      displayTagline: pick("display_tagline", fb.displayTagline),
+      childBodyWithRuby: pick("child_body_with_ruby", fb.childBodyWithRuby),
+      parentSummary: pick("parent_summary", fb.parentSummary),
+    };
+  } catch (err) {
+    logger.warn("Gemini transform failed; using raw fallback", {
+      url: a.url,
+      err: `${err}`,
+    });
+    return rawFallback(a);
+  }
+}
+
+/**
+ * GNews から日本語トップ記事を取得し、Gemini で子ども向けに変換して Firestore へ書き込む。
+ *
+ * - `/news_pool/{id}`                     … 全ユーザー共通の元記事（子ども向け本文＋親要約）
  * - `/users/{uid}/personalized_feed/{id}` … 呼び出しユーザー向けフィード
- *
- * 子ども向け変換（ルビ付与等）は後フェーズの Gemini パイプラインで行う。
  */
 export const fetchNews = onCall(
-  { secrets: [GNEWS_API_KEY] },
+  { secrets: [GNEWS_API_KEY], timeoutSeconds: 300, memory: "512MiB" },
   async (request): Promise<{ count: number }> => {
     const uid = request.auth?.uid;
     if (!uid) {
@@ -91,19 +187,22 @@ export const fetchNews = onCall(
       return { count: 0 };
     }
 
+    // 各記事を Gemini で子ども向けに変換（並列）。失敗分は生記事へフォールバック。
+    const converted = await Promise.all(articles.map(toChildFriendly));
+
     const db = getFirestore();
     const batch = db.batch();
 
-    for (const a of articles) {
+    articles.forEach((a, i) => {
       const id = newsIdFromUrl(a.url);
+      const cf = converted[i];
 
       // /news_pool/{id} … firestore_seeder と同じ snake_case スキーマ。
       batch.set(db.collection("news_pool").doc(id), {
         original_title: a.title,
         published_at: Timestamp.fromDate(new Date(a.publishedAt)),
-        parent_summary: a.description ?? "",
-        // ルビ markup は付けず、本文（無ければ概要）をそのまま入れる。
-        child_body_with_ruby: a.content ?? a.description ?? "",
+        parent_summary: cf.parentSummary,
+        child_body_with_ruby: cf.childBodyWithRuby,
       });
 
       // 画像があれば generated モードで NetworkImage 表示、無ければ text_overlay。
@@ -121,14 +220,14 @@ export const fetchNews = onCall(
         {
           news_id: id,
           interest_context: a.source?.name ?? "ニュース",
-          display_title: a.title,
-          display_tagline: toTagline(a.description),
+          display_title: cf.displayTitle,
+          display_tagline: cf.displayTagline,
           thumbnail_config: thumbnailConfig,
           is_viewed: false,
           view_duration_seconds: 0,
         },
       );
-    }
+    });
 
     await batch.commit();
     logger.info(`fetchNews wrote ${articles.length} articles for ${uid}`);
