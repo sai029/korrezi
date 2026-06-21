@@ -5,6 +5,7 @@ import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { setGlobalOptions } from "firebase-functions/v2";
 import { defineSecret } from "firebase-functions/params";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 import { logger } from "firebase-functions";
 import { VertexAI } from "@google-cloud/vertexai";
 
@@ -232,5 +233,71 @@ export const fetchNews = onCall(
     await batch.commit();
     logger.info(`fetchNews wrote ${articles.length} articles for ${uid}`);
     return { count: articles.length };
+  },
+);
+
+/**
+ * 毎朝6時(JST)に GNews を取得し、news_pool を自動更新する。
+ *
+ * personalized_feed はユーザーごとに異なるため更新しない。
+ * ユーザーが次回起動したときに fetchNews を手動トリガーするか、
+ * 将来的に interest_profile を元に個別配信するパイプラインで対応する。
+ */
+export const refreshNewsPool = onSchedule(
+  {
+    schedule: "0 6 * * *",
+    timeZone: "Asia/Tokyo",
+    secrets: [GNEWS_API_KEY],
+    timeoutSeconds: 300,
+    memory: "512MiB",
+  },
+  async () => {
+    const params = new URLSearchParams({
+      lang: "ja",
+      country: "jp",
+      max: "10",
+      apikey: GNEWS_API_KEY.value(),
+    });
+    const endpoint = `https://gnews.io/api/v4/top-headlines?${params.toString()}`;
+
+    let data: GNewsResponse;
+    try {
+      const res = await fetch(endpoint);
+      if (!res.ok) {
+        logger.error("GNews request failed", {
+          status: res.status,
+          body: await res.text(),
+        });
+        return;
+      }
+      data = (await res.json()) as GNewsResponse;
+    } catch (err) {
+      logger.error("GNews fetch threw", err);
+      return;
+    }
+
+    const articles = data.articles ?? [];
+    if (articles.length === 0) {
+      logger.info("refreshNewsPool: no articles returned");
+      return;
+    }
+
+    const converted = await Promise.all(articles.map(toChildFriendly));
+
+    const db = getFirestore();
+    const batch = db.batch();
+    articles.forEach((a, i) => {
+      const id = newsIdFromUrl(a.url);
+      const cf = converted[i];
+      batch.set(db.collection("news_pool").doc(id), {
+        original_title: a.title,
+        published_at: Timestamp.fromDate(new Date(a.publishedAt)),
+        parent_summary: cf.parentSummary,
+        child_body_with_ruby: cf.childBodyWithRuby,
+      });
+    });
+
+    await batch.commit();
+    logger.info(`refreshNewsPool wrote ${articles.length} articles to news_pool`);
   },
 );
