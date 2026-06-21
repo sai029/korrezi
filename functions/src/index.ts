@@ -64,7 +64,7 @@ function rawFallback(a: GNewsArticle): ChildFriendly {
   return {
     displayTitle: a.title,
     displayTagline: toTagline(a.description),
-    childBodyWithRuby: a.content ?? a.description ?? "",
+    childBodyWithRuby: a.description ?? a.content ?? "",
     parentSummary: a.description ?? "",
   };
 }
@@ -92,10 +92,12 @@ function getGeminiModel() {
  * 失敗時は生記事へフォールバックして処理を止めない。
  */
 async function toChildFriendly(a: GNewsArticle): Promise<ChildFriendly> {
+  // GNews 無料プランは content が冒頭のみ（途中で切れる）。
+  // description は完結した概要なので、こちらを主要な情報源として優先する。
   const source = [
     `タイトル: ${a.title}`,
-    `概要: ${a.description ?? ""}`,
-    `本文: ${a.content ?? ""}`,
+    `概要（完全）: ${a.description ?? ""}`,
+    `本文（途中で切れている可能性あり）: ${a.content ?? ""}`,
   ].join("\n");
 
   const prompt = [
