@@ -7,7 +7,7 @@ import 'core/theme/theme.dart';
 /// ルートアプリウィジェット。
 ///
 /// ProviderScope は main.dart 側で wrap する。
-/// 向き(縦/横)に応じて Child Mode ⇔ Common Mode のテーマを滑らかに切り替える。
+/// 向き・モードによる色切替は行わず、常に childMode テーマを使用。
 class MyApp extends ConsumerWidget {
   const MyApp({super.key});
 
@@ -17,12 +17,6 @@ class MyApp extends ConsumerWidget {
       title: 'AI Discovery Learning App',
       theme: AppTheme.childMode,
       routerConfig: ref.watch(appRouterProvider),
-      // 全ルート共通で向き連動テーマを適用（縦=childMode / 横=commonMode）。
-      // TODO: Parent Mode ルートでは portraitTheme を AppTheme.parentMode に切替。
-      builder: (context, child) => OrientationResponsiveTheme(
-        portraitTheme: AppTheme.childMode,
-        child: child ?? const SizedBox.shrink(),
-      ),
     );
   }
 }

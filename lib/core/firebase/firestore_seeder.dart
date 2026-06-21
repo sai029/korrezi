@@ -71,6 +71,7 @@ final List<_Seed> _seeds = [
     id: 'news_eco_stadium',
     news: NewsPool(
       originalTitle: 'Global Environmental Regulations Strengthened',
+      childTitleWithRuby: '〔環境｜かんきょう〕にやさしいスタジアム',
       publishedAt: DateTime.parse('2026-06-16T00:00:00Z'),
       parentSummary: '・各国が炭素排出の新しい規制を導入\n'
           '・スタジアム等の大型施設も対象\n'
@@ -94,6 +95,7 @@ final List<_Seed> _seeds = [
     id: 'news_space_food',
     news: NewsPool(
       originalTitle: 'Life Aboard the Space Station',
+      childTitleWithRuby: '〔宇宙｜うちゅう〕ではどうやってごはんをたべるの？',
       publishedAt: DateTime.parse('2026-06-15T00:00:00Z'),
       parentSummary: '・宇宙飛行士の食事と無重力下の工夫\n'
           '・水分補給と栄養管理の最新事情',
@@ -115,6 +117,7 @@ final List<_Seed> _seeds = [
     id: 'news_env_rule',
     news: NewsPool(
       originalTitle: 'Nations Agree on a Shared Future',
+      childTitleWithRuby: 'みんなで〔決｜き〕める〔地球｜ちきゅう〕のルール',
       publishedAt: DateTime.parse('2026-06-14T00:00:00Z'),
       parentSummary: '・国際的な合意形成のプロセス\n'
           '・次世代への影響を重視した長期的視点',

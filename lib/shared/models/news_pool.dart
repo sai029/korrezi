@@ -33,6 +33,9 @@ class NewsPool with _$NewsPool {
     /// 出典名（例: "NHK ニュース"）。interest_profile のスコアキーとして使用。
     @JsonKey(name: 'interest_context') @Default('ニュース') String interestContext,
 
+    /// ルビ markup を埋め込んだ子ども向けタイトル（未設定時は originalTitle で表示）。
+    @JsonKey(name: 'child_title_with_ruby') @Default('') String childTitleWithRuby,
+
     /// サムネイル設定。画像があれば generated モード、なければ text_overlay。
     @JsonKey(name: 'thumbnail_config')
     @Default(ThumbnailConfig())

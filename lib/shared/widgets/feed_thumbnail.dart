@@ -78,19 +78,9 @@ class _FeedThumbnailState extends State<FeedThumbnail> {
       );
     }
 
-    // フォールバック: accent グラデ + カテゴリアイコン
-    final accent = scheme.secondary;
+    // フォールバック: ベースカラー + カテゴリアイコン
     return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            accent.withValues(alpha: 0.6),
-            AppColors.brandPrimary.withValues(alpha: 0.8),
-          ],
-        ),
-      ),
+      decoration: const BoxDecoration(color: AppColors.surface),
       child: Stack(
         fit: StackFit.expand,
         children: [

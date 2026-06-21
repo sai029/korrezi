@@ -15,6 +15,7 @@ _$NewsPoolImpl _$$NewsPoolImplFromJson(Map<String, dynamic> json) =>
       displayTitle: json['display_title'] as String? ?? '',
       displayTagline: json['display_tagline'] as String? ?? '',
       interestContext: json['interest_context'] as String? ?? 'ニュース',
+      childTitleWithRuby: json['child_title_with_ruby'] as String? ?? '',
       thumbnailConfig: json['thumbnail_config'] == null
           ? const ThumbnailConfig()
           : ThumbnailConfig.fromJson(
@@ -31,5 +32,6 @@ Map<String, dynamic> _$$NewsPoolImplToJson(_$NewsPoolImpl instance) =>
       'display_title': instance.displayTitle,
       'display_tagline': instance.displayTagline,
       'interest_context': instance.interestContext,
+      'child_title_with_ruby': instance.childTitleWithRuby,
       'thumbnail_config': instance.thumbnailConfig.toJson(),
     };

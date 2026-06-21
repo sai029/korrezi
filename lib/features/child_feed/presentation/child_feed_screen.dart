@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/tokens.dart';
 import '../../../shared/models/personalized_feed_item.dart';
 import '../../../shared/widgets/app_drawer.dart';
 import '../../../shared/widgets/bouncy_tap.dart';
 import '../../../shared/widgets/feed_thumbnail.dart';
+import '../../../shared/widgets/furigana_text.dart';
+import '../../common_view/application/common_view_provider.dart';
 import '../application/child_feed_provider.dart';
 
 /// Child Mode (タブレット・縦) TikTok風エンドレス縦スクロールフィード。
@@ -43,7 +46,10 @@ class _ChildFeedScreenState extends ConsumerState<ChildFeedScreen> {
     if (id == null) return;
     final seconds = DateTime.now().difference(_pageEnteredAt).inSeconds;
     if (seconds > 0) {
-      _feedNotifier?.recordView(id, seconds);
+      // dispose() 内で provider を直接変更すると Riverpod が例外を出すため、
+      // microtask に逃がしてウィジェットツリー確定後に実行する。
+      final notifier = _feedNotifier;
+      Future.microtask(() => notifier?.recordView(id, seconds));
     }
   }
 
@@ -87,7 +93,8 @@ class _ChildFeedScreenState extends ConsumerState<ChildFeedScreen> {
                 physics: const _FastPageScrollPhysics(),
                 itemCount: feed.length,
                 onPageChanged: (index) => _onPageChanged(feed, index),
-                itemBuilder: (context, index) => _FeedPage(item: feed[index]),
+                itemBuilder: (context, index) =>
+                    _FeedPage(item: feed[index], index: index),
               );
             },
           ),
@@ -130,13 +137,14 @@ class _FastPageScrollPhysics extends PageScrollPhysics {
 }
 
 /// 1記事分の没入型ページ（大型サムネ + テキストオーバーレイ + アクションフック）。
-class _FeedPage extends StatelessWidget {
-  const _FeedPage({required this.item});
+class _FeedPage extends ConsumerWidget {
+  const _FeedPage({required this.item, required this.index});
 
   final PersonalizedFeedItem item;
+  final int index;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final textTheme = Theme.of(context).textTheme;
 
     return FeedThumbnail(
@@ -145,15 +153,9 @@ class _FeedPage extends StatelessWidget {
       overlay: Stack(
         fit: StackFit.expand,
         children: [
-          // 下部グラデーション（transparent → ink900 @85%）
+          // 下部グラデーション（transparent → #000B29 @85%）
           const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.center,
-                end: Alignment.bottomCenter,
-                colors: [Colors.transparent, Color(0xD91F1B2E)],
-              ),
-            ),
+            decoration: BoxDecoration(gradient: AppGradients.feedOverlay),
           ),
           Padding(
             padding: const EdgeInsets.all(AppSpacing.space5),
@@ -161,7 +163,7 @@ class _FeedPage extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.end,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // カテゴリバッジ（ステッカー風）
+                // カテゴリバッジ（ジャンル別アクセントカラー）
                 BouncyTap(
                   child: Container(
                     padding: const EdgeInsets.symmetric(
@@ -169,9 +171,8 @@ class _FeedPage extends StatelessWidget {
                       vertical: AppSpacing.space1 + 2,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.brandPrimary,
+                      color: AppColors.accentForGenre(item.interestContext),
                       borderRadius: AppRadii.pill,
-                      boxShadow: AppElevation.elev1(),
                     ),
                     child: Text(
                       '#${item.interestContext}',
@@ -182,8 +183,8 @@ class _FeedPage extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.space4),
-                // タイトル（display / Rounded はテーマから自動適用）
-                Text(
+                // タイトル（ルビ対応）
+                FuriganaText(
                   item.displayTitle,
                   style: textTheme.displaySmall?.copyWith(
                     color: AppColors.brandPrimaryInk,
@@ -191,7 +192,7 @@ class _FeedPage extends StatelessWidget {
                 ),
                 const SizedBox(height: AppSpacing.space2),
                 // タグライン
-                Text(
+                FuriganaText(
                   item.displayTagline,
                   style: textTheme.bodyLarge?.copyWith(
                     color: AppColors.brandPrimaryInk.withValues(alpha: 0.7),
@@ -203,10 +204,18 @@ class _FeedPage extends StatelessWidget {
                   children: [
                     BouncyTap(
                       onTap: () {
-                        // TODO: 記事リーダー（Common View）へ遷移。
+                        ref
+                            .read(selectedArticleIndexProvider.notifier)
+                            .state = index;
+                        context.go('/common');
                       },
                       child: FilledButton.icon(
-                        onPressed: () {},
+                        onPressed: () {
+                          ref
+                              .read(selectedArticleIndexProvider.notifier)
+                              .state = index;
+                          context.go('/common');
+                        },
                         icon: const Icon(Icons.menu_book),
                         label: const Text('よんでみる'),
                       ),

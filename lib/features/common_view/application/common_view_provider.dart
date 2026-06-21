@@ -33,6 +33,7 @@ final selectedArticleIndexProvider = StateProvider<int>((ref) => 0);
 final _sample = [
   NewsPool(
     originalTitle: 'エコ・スタジアム',
+    childTitleWithRuby: '〔環境｜かんきょう〕にやさしいスタジアム',
     publishedAt: DateTime.parse('2026-06-16T00:00:00Z'),
     parentSummary: 'スタジアムの環境配慮の取り組み。',
     childBodyWithRuby:
@@ -42,6 +43,7 @@ final _sample = [
   ),
   NewsPool(
     originalTitle: 'うちゅうのごはん',
+    childTitleWithRuby: '〔宇宙｜うちゅう〕ではどうやってごはんをたべるの？',
     publishedAt: DateTime.parse('2026-06-15T00:00:00Z'),
     parentSummary: '宇宙飛行士の食事の工夫。',
     childBodyWithRuby:
@@ -50,6 +52,7 @@ final _sample = [
   ),
   NewsPool(
     originalTitle: 'みんなで決めるルール',
+    childTitleWithRuby: 'みんなで〔決｜き〕める〔地球｜ちきゅう〕のルール',
     publishedAt: DateTime.parse('2026-06-14T00:00:00Z'),
     parentSummary: '国際的な合意形成について。',
     childBodyWithRuby:

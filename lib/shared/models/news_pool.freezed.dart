@@ -47,6 +47,10 @@ mixin _$NewsPool {
   @JsonKey(name: 'interest_context')
   String get interestContext => throw _privateConstructorUsedError;
 
+  /// ルビ markup を埋め込んだ子ども向けタイトル（未設定時は originalTitle で表示）。
+  @JsonKey(name: 'child_title_with_ruby')
+  String get childTitleWithRuby => throw _privateConstructorUsedError;
+
   /// サムネイル設定。画像があれば generated モード、なければ text_overlay。
   @JsonKey(name: 'thumbnail_config')
   ThumbnailConfig get thumbnailConfig => throw _privateConstructorUsedError;
@@ -74,6 +78,7 @@ abstract class $NewsPoolCopyWith<$Res> {
     @JsonKey(name: 'display_title') String displayTitle,
     @JsonKey(name: 'display_tagline') String displayTagline,
     @JsonKey(name: 'interest_context') String interestContext,
+    @JsonKey(name: 'child_title_with_ruby') String childTitleWithRuby,
     @JsonKey(name: 'thumbnail_config') ThumbnailConfig thumbnailConfig,
   });
 
@@ -102,6 +107,7 @@ class _$NewsPoolCopyWithImpl<$Res, $Val extends NewsPool>
     Object? displayTitle = null,
     Object? displayTagline = null,
     Object? interestContext = null,
+    Object? childTitleWithRuby = null,
     Object? thumbnailConfig = null,
   }) {
     return _then(
@@ -133,6 +139,10 @@ class _$NewsPoolCopyWithImpl<$Res, $Val extends NewsPool>
             interestContext: null == interestContext
                 ? _value.interestContext
                 : interestContext // ignore: cast_nullable_to_non_nullable
+                      as String,
+            childTitleWithRuby: null == childTitleWithRuby
+                ? _value.childTitleWithRuby
+                : childTitleWithRuby // ignore: cast_nullable_to_non_nullable
                       as String,
             thumbnailConfig: null == thumbnailConfig
                 ? _value.thumbnailConfig
@@ -171,6 +181,7 @@ abstract class _$$NewsPoolImplCopyWith<$Res>
     @JsonKey(name: 'display_title') String displayTitle,
     @JsonKey(name: 'display_tagline') String displayTagline,
     @JsonKey(name: 'interest_context') String interestContext,
+    @JsonKey(name: 'child_title_with_ruby') String childTitleWithRuby,
     @JsonKey(name: 'thumbnail_config') ThumbnailConfig thumbnailConfig,
   });
 
@@ -199,6 +210,7 @@ class __$$NewsPoolImplCopyWithImpl<$Res>
     Object? displayTitle = null,
     Object? displayTagline = null,
     Object? interestContext = null,
+    Object? childTitleWithRuby = null,
     Object? thumbnailConfig = null,
   }) {
     return _then(
@@ -231,6 +243,10 @@ class __$$NewsPoolImplCopyWithImpl<$Res>
             ? _value.interestContext
             : interestContext // ignore: cast_nullable_to_non_nullable
                   as String,
+        childTitleWithRuby: null == childTitleWithRuby
+            ? _value.childTitleWithRuby
+            : childTitleWithRuby // ignore: cast_nullable_to_non_nullable
+                  as String,
         thumbnailConfig: null == thumbnailConfig
             ? _value.thumbnailConfig
             : thumbnailConfig // ignore: cast_nullable_to_non_nullable
@@ -253,6 +269,7 @@ class _$NewsPoolImpl implements _NewsPool {
     @JsonKey(name: 'display_title') this.displayTitle = '',
     @JsonKey(name: 'display_tagline') this.displayTagline = '',
     @JsonKey(name: 'interest_context') this.interestContext = 'ニュース',
+    @JsonKey(name: 'child_title_with_ruby') this.childTitleWithRuby = '',
     @JsonKey(name: 'thumbnail_config')
     this.thumbnailConfig = const ThumbnailConfig(),
   });
@@ -293,6 +310,11 @@ class _$NewsPoolImpl implements _NewsPool {
   @JsonKey(name: 'interest_context')
   final String interestContext;
 
+  /// ルビ markup を埋め込んだ子ども向けタイトル（未設定時は originalTitle で表示）。
+  @override
+  @JsonKey(name: 'child_title_with_ruby')
+  final String childTitleWithRuby;
+
   /// サムネイル設定。画像があれば generated モード、なければ text_overlay。
   @override
   @JsonKey(name: 'thumbnail_config')
@@ -300,7 +322,7 @@ class _$NewsPoolImpl implements _NewsPool {
 
   @override
   String toString() {
-    return 'NewsPool(originalTitle: $originalTitle, publishedAt: $publishedAt, parentSummary: $parentSummary, childBodyWithRuby: $childBodyWithRuby, displayTitle: $displayTitle, displayTagline: $displayTagline, interestContext: $interestContext, thumbnailConfig: $thumbnailConfig)';
+    return 'NewsPool(originalTitle: $originalTitle, publishedAt: $publishedAt, parentSummary: $parentSummary, childBodyWithRuby: $childBodyWithRuby, displayTitle: $displayTitle, displayTagline: $displayTagline, interestContext: $interestContext, childTitleWithRuby: $childTitleWithRuby, thumbnailConfig: $thumbnailConfig)';
   }
 
   @override
@@ -322,6 +344,8 @@ class _$NewsPoolImpl implements _NewsPool {
                 other.displayTagline == displayTagline) &&
             (identical(other.interestContext, interestContext) ||
                 other.interestContext == interestContext) &&
+            (identical(other.childTitleWithRuby, childTitleWithRuby) ||
+                other.childTitleWithRuby == childTitleWithRuby) &&
             (identical(other.thumbnailConfig, thumbnailConfig) ||
                 other.thumbnailConfig == thumbnailConfig));
   }
@@ -337,6 +361,7 @@ class _$NewsPoolImpl implements _NewsPool {
     displayTitle,
     displayTagline,
     interestContext,
+    childTitleWithRuby,
     thumbnailConfig,
   );
 
@@ -366,6 +391,7 @@ abstract class _NewsPool implements NewsPool {
     @JsonKey(name: 'display_title') final String displayTitle,
     @JsonKey(name: 'display_tagline') final String displayTagline,
     @JsonKey(name: 'interest_context') final String interestContext,
+    @JsonKey(name: 'child_title_with_ruby') final String childTitleWithRuby,
     @JsonKey(name: 'thumbnail_config') final ThumbnailConfig thumbnailConfig,
   }) = _$NewsPoolImpl;
 
@@ -404,6 +430,11 @@ abstract class _NewsPool implements NewsPool {
   @override
   @JsonKey(name: 'interest_context')
   String get interestContext;
+
+  /// ルビ markup を埋め込んだ子ども向けタイトル（未設定時は originalTitle で表示）。
+  @override
+  @JsonKey(name: 'child_title_with_ruby')
+  String get childTitleWithRuby;
 
   /// サムネイル設定。画像があれば generated モード、なければ text_overlay。
   @override

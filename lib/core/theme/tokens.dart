@@ -2,35 +2,75 @@ import 'package:flutter/material.dart';
 
 // ─── カラー ───────────────────────────────────────────────────────────────────
 abstract final class AppColors {
-  // ブランド（全モード不変）— Educated Pop & Comic-Tabloid パレット
-  static const brandPrimary    = Color(0xFF4361EE); // Cartoon Blue
-  static const brandPrimaryInk = Color(0xFFFFFFFF);
-  static const brandSecondary  = Color(0xFFFFD700); // Comic Yellow
-  static const brandTertiary   = Color(0xFFE63946); // Headline Red
+  // ── ブランド（全モード不変） ──
+  /// メインカラー: ディープレッド
+  static const brandPrimary    = Color(0xFFD70026);
+  /// brandPrimary 上のテキスト/アイコン
+  static const brandPrimaryInk = Color(0xFFF8F5F2);
+  /// アクセント: ゴールデンアンバー
+  static const accent          = Color(0xFFEDB83D);
+  /// accent 上のテキスト
+  static const accentInk       = Color(0xFF000B29);
 
-  // モード差し色（accent）— CMYK3原色を各モードに割り当て
-  static const accentChild  = Color(0xFFFFD700); // Comic Yellow
-  static const accentCommon = Color(0xFFE63946); // Headline Red
-  static const accentParent = Color(0xFF1D3557); // Deep Navy
+  // ── ニュートラル（#000B29 をベース） ──
+  /// ほぼ黒のネイビー（黒の代替）
+  static const ink900 = Color(0xFF000B29);
+  static const ink700 = Color(0xFF1C2647);
+  static const ink500 = Color(0xFF5E6A8C);
+  static const ink300 = Color(0xFFAEB6CC);
 
-  // ニュートラル — 新聞紙・印刷物ベース
-  static const ink900     = Color(0xFF0A0A0A); // near-black ink
-  static const ink700     = Color(0xFF2D2D2D);
-  static const ink500     = Color(0xFF6B6B6B);
-  static const ink300     = Color(0xFFBBBBBB);
-  static const surface    = Color(0xFFF4F1EA); // newsprint warm
-  static const surfaceAlt = Color(0xFFEDE9DF);
-  static const background = Color(0xFFFAF8F5); // off-white warm
+  // ── サーフェス（#F8F5F2 をベース） ──
+  /// カード・入力欄の背景
+  static const surface    = Color(0xFFF8F5F2);
+  /// やや濃いサーフェス（区切り・代替背景）
+  static const surfaceAlt = Color(0xFFEFEBE6);
+  /// アプリ全体の背景（ほぼ白）
+  static const background = Color(0xFFFDFCFB);
 
-  // セマンティック
-  static const success = Color(0xFF2A7A2A);
-  static const warning = Color(0xFFFFD700);
-  static const error   = Color(0xFFE63946);
+  // ── ジャンル別アクセント（記事カテゴリで切り替え） ──
+  static const accentGreen  = Color(0xFF258039);
+  static const accentYellow = Color(0xFFEDB83D); // メインアクセントと共通
+  static const accentTeal   = Color(0xFF31A9B8);
+  static const accentRed    = Color(0xFFD70026);  // メインカラーと共通
+
+  /// ジャンル名から 4 色を選ぶ（ハッシュベース・再現性あり）。
+  static Color accentForGenre(String genre) {
+    const colors = [accentGreen, accentYellow, accentTeal, accentRed];
+    return colors[genre.hashCode.abs() % colors.length];
+  }
+
+  // ── セマンティック ──
+  static const success = Color(0xFF258039);
+  static const warning = Color(0xFFEDB83D);
+  static const error   = Color(0xFFD70026);
+}
+
+// ─── グラデーション ───────────────────────────────────────────────────────────
+abstract final class AppGradients {
+  /// フィード画面の下部オーバーレイ（テキスト可読性確保）。
+  static const feedOverlay = LinearGradient(
+    begin: Alignment.center,
+    end: Alignment.bottomCenter,
+    colors: [Colors.transparent, Color(0xD9000B29)],
+  );
+
+  /// サムネイルフォールバック背景（accent → brand）。
+  static const thumbnailFallback = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0x99EDB83D), Color(0xCCD70026)],
+  );
+
+  /// 汎用ページ背景（ベース上の微妙なグラデーション）。
+  static const pageBackground = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [Color(0xFFFDFCFB), Color(0xFFF8F5F2)],
+  );
 }
 
 // ─── タイポグラフィ定数 ──────────────────────────────────────────────────────
 abstract final class AppType {
-  // 基準サイズ（モード倍率前）— 大胆なジャンプ率
   static const double sizeDisplay   = 40;
   static const double sizeHeadline  = 28;
   static const double sizeTitle     = 22;
@@ -39,17 +79,14 @@ abstract final class AppType {
   static const double sizeLabel     = 14;
   static const double sizeCaption   = 12;
 
-  // モード倍率
   static const double factorChild  = 1.0;
   static const double factorParent = 0.94;
   static const double factorCommon = 1.3;
 
-  // 行間
   static const double lineHeightChild  = 1.35;
   static const double lineHeightParent = 1.5;
   static const double lineHeightCommon = 1.7;
 
-  // 字間 — 見出しは詰め固定・本文はモード別
   static const double spacingHeadline = -0.5;
   static const double spacingChild    = 0.0;
   static const double spacingParent   = 0.1;
@@ -68,7 +105,7 @@ abstract final class AppSpacing {
   static const double space8 = 64;
 }
 
-// ─── 角丸 — シャープ・ブロック優先（丸みより直線）─────────────────────────────
+// ─── 角丸 ─────────────────────────────────────────────────────────────────────
 abstract final class AppRadii {
   static const double radiusSm   = 4;
   static const double radiusMd   = 6;
@@ -81,7 +118,7 @@ abstract final class AppRadii {
   static const pill = BorderRadius.all(Radius.circular(radiusPill));
 }
 
-// ─── ボーダー — 新聞のコマ割りを表現する太い罫線 ─────────────────────────────
+// ─── ボーダー ─────────────────────────────────────────────────────────────────
 abstract final class AppBorder {
   static const double thin  = 1.5;
   static const double base  = 2.5;
@@ -92,19 +129,11 @@ abstract final class AppBorder {
   static const sideThin  = BorderSide(color: AppColors.ink900, width: thin);
 }
 
-// ─── エレベーション — Neo-Brutalism ソリッドオフセット（ぼかし不使用）────────
+// ─── エレベーション（影なし） ──────────────────────────────────────────────────
 abstract final class AppElevation {
-  static List<BoxShadow> elev1() => const [
-        BoxShadow(color: AppColors.ink900, offset: Offset(3, 3), blurRadius: 0),
-      ];
-
-  static List<BoxShadow> elev2() => const [
-        BoxShadow(color: AppColors.ink900, offset: Offset(5, 5), blurRadius: 0),
-      ];
-
-  static List<BoxShadow> elev3() => const [
-        BoxShadow(color: AppColors.ink900, offset: Offset(8, 8), blurRadius: 0),
-      ];
+  static List<BoxShadow> elev1() => const [];
+  static List<BoxShadow> elev2() => const [];
+  static List<BoxShadow> elev3() => const [];
 }
 
 // ─── モーション ───────────────────────────────────────────────────────────────

@@ -115,16 +115,15 @@ class _NavigationGrid extends StatelessWidget {
             padding: const EdgeInsets.all(AppSpacing.space3),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.end,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Icon(
                   Icons.article_outlined,
                   color: selected ? accent : AppColors.ink500,
                 ),
-                const Spacer(),
                 Text(
                   articles[i].originalTitle,
-                  maxLines: 2,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleSmall,
                 ),
@@ -153,8 +152,13 @@ class _ArticleReader extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 見出し: Rounded（テーマから自動適用）
-            Text(article.originalTitle, style: textTheme.headlineMedium),
+            // タイトル: ルビ対応。child_title_with_ruby があればルビ付き表示。
+            FuriganaText(
+              article.childTitleWithRuby.isEmpty
+                  ? article.originalTitle
+                  : article.childTitleWithRuby,
+              style: textTheme.headlineMedium,
+            ),
             const SizedBox(height: AppSpacing.space5),
             // 本文: Noto Sans JP + 行間 1.8 を明示（calm content 厳守）
             FuriganaText(
