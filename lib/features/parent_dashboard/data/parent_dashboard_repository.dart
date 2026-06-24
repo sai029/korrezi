@@ -30,14 +30,33 @@ class ParentDashboardRepository {
     return InterestProfile.fromJson(data);
   }
 
-  /// 保護者向け要約を表示する当日の記事を取得する。
-  Future<List<NewsPool>> fetchTodaysArticles({int limit = 10}) async {
+  /// 保護者向け要約を表示する当日の記事を doc id 付きで取得する。
+  ///
+  /// doc id（= newsId）は子どもの閲覧状況（personalized_feed）との突合に使う。
+  Future<List<({String newsId, NewsPool article})>> fetchTodaysArticles({
+    int limit = 10,
+  }) async {
     final snap = await _db
         .collection('news_pool')
         .orderBy('published_at', descending: true)
         .limit(limit)
         .get();
-    return snap.docs.map((d) => NewsPool.fromJson(d.data())).toList();
+    return snap.docs
+        .map((d) => (newsId: d.id, article: NewsPool.fromJson(d.data())))
+        .toList();
+  }
+
+  /// 子どもが閲覧済みの記事 ID 集合を取得する。
+  ///
+  /// `users/{userId}/personalized_feed` のうち `is_viewed == true` の doc id を返す。
+  Future<Set<String>> fetchViewedNewsIds(String userId) async {
+    final snap = await _db
+        .collection('users')
+        .doc(userId)
+        .collection('personalized_feed')
+        .where('is_viewed', isEqualTo: true)
+        .get();
+    return snap.docs.map((d) => d.id).toSet();
   }
 }
 
