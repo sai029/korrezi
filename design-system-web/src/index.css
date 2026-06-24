@@ -1,0 +1,88 @@
+/* Comic-Tabloid Design System — Flutter app companion */
+/* Google Fonts: M PLUS 1p (headings) + Noto Sans JP (body) */
+@import url('https://fonts.googleapis.com/css2?family=M+PLUS+1p:wght@700;800;900&family=Noto+Sans+JP:wght@400;500;600&display=swap');
+
+:root {
+  /* ── Brand colors ── */
+  --ct-brand-primary:     #D70026;
+  --ct-brand-primary-ink: #F8F5F2;
+  --ct-accent:            #EDB83D;
+  --ct-accent-ink:        #000B29;
+
+  /* ── Ink (navy-based neutrals) ── */
+  --ct-ink-900: #000B29;
+  --ct-ink-700: #1C2647;
+  --ct-ink-500: #5E6A8C;
+  --ct-ink-300: #AEB6CC;
+
+  /* ── Surfaces ── */
+  --ct-surface:     #F8F5F2;
+  --ct-surface-alt: #EFEBE6;
+  --ct-background:  #FDFCFB;
+
+  /* ── Genre accents ── */
+  --ct-accent-green:  #258039;
+  --ct-accent-yellow: #EDB83D;
+  --ct-accent-teal:   #31A9B8;
+  --ct-accent-red:    #D70026;
+
+  /* ── Semantic ── */
+  --ct-success: #258039;
+  --ct-warning: #EDB83D;
+  --ct-error:   #D70026;
+
+  /* ── Typography ── */
+  --ct-font-heading: 'M PLUS 1p', sans-serif;
+  --ct-font-body:    'Noto Sans JP', sans-serif;
+
+  --ct-size-display:    40px;
+  --ct-size-headline:   28px;
+  --ct-size-title:      22px;
+  --ct-size-body-large: 18px;
+  --ct-size-body:       16px;
+  --ct-size-label:      14px;
+  --ct-size-caption:    12px;
+
+  --ct-lh-child:  1.35;
+  --ct-lh-parent: 1.5;
+  --ct-lh-common: 1.7;
+
+  /* ── Spacing ── */
+  --ct-space-1: 4px;
+  --ct-space-2: 8px;
+  --ct-space-3: 12px;
+  --ct-space-4: 16px;
+  --ct-space-5: 24px;
+  --ct-space-6: 32px;
+  --ct-space-7: 48px;
+  --ct-space-8: 64px;
+
+  /* ── Border radius ── */
+  --ct-radius-sm:   4px;
+  --ct-radius-md:   6px;
+  --ct-radius-lg:   8px;
+  --ct-radius-pill: 9999px;
+
+  /* ── Borders ── */
+  --ct-border-thin:  1.5px;
+  --ct-border-base:  2.5px;
+  --ct-border-thick: 4px;
+
+  /* ── Motion ── */
+  --ct-dur-fast: 150ms;
+  --ct-dur-base: 250ms;
+  --ct-dur-slow: 400ms;
+  --ct-ease-standard: ease-in-out;
+  --ct-ease-bounce:   cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Base reset for previews */
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--ct-background);
+  color: var(--ct-ink-900);
+  font-family: var(--ct-font-body);
+  font-size: var(--ct-size-body);
+  line-height: var(--ct-lh-child);
+}

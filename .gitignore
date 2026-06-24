@@ -44,6 +44,14 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# Design sync — build artifacts (committed: design-sync.config.json, .design-sync/, design-system-web/src/)
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+design-system-web/node_modules/
+design-system-web/dist/
+
 # Firebase / secrets
 # NOTE: client config files (firebase_options.dart, google-services.json,
 # GoogleService-Info.plist) は意図的に追跡対象のまま（チームで共有する）。

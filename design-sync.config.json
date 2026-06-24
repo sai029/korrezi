@@ -1,0 +1,9 @@
+{
+  "shape": "package",
+  "pkg": "flutter-comic-tabloid-ds",
+  "globalName": "ComicTabloidDS",
+  "projectId": "95d81b9d-ecfe-4f56-9799-1020ae417e4b",
+  "buildCmd": "cd design-system-web && npm run build",
+  "cssEntry": "src/index.css",
+  "runtimeFontPrefixes": ["M PLUS 1p", "Noto Sans JP"]
+}
