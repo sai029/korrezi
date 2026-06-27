@@ -85,11 +85,35 @@ AI に記事テキストを入力し、各軸をスコアリング（1〜5）ま
 }
 ```
 
-- **安全 NG（④）の記事は news_pool に書き込まれない**ため、現状「落とした記事」のスコアは残らない。
-  品質軸は記録のみなので落ちるのは安全 NG の少数のみ。将来それも監査したくなったら専用コレクションを足す。
 - クライアントは `quality_review` を読まなくてよい（未知フィールドは Dart モデルが無視する）。
 - 実装: `functions/src/index.ts` の `scoreArticle`（採点）→ `ingestArticles`（ゲート→変換→書込）。
   採点モデルは `temperature: 0` ＋ `responseSchema` ＋ `safetySettings`（BLOCK_LOW_AND_ABOVE）。
+
+### 除外した記事の記録（`rejected_articles/{id}`）
+
+落とした記事は監査・閾値調整のため専用コレクション `rejected_articles/{id}`（id は news_pool と同じ
+URL ハッシュ＝冪等）に保存する。**クライアントには非公開**（`firestore.rules` で deny、Admin SDK のみ書込、
+Firebase コンソールで確認する）。
+
+```jsonc
+{
+  "original_title": "...",
+  "url": "https://...",
+  "interest_context": "出典名",
+  "published_at": "<Timestamp>",
+  "rejected_reason": "safety" | "scoring_failed",  // ④安全NG / 採点失敗(fail-closed・Vertexブロック)
+  "safety_flags": ["残虐表現"],     // safety のとき。scoring_failed では []
+  "scores": { ... } | null,         // safety では採点済みスコア、scoring_failed では null
+  "reason": "...",                  // AI の判定理由（scoring_failed では ""）
+  "model": "gemini-2.5-flash",
+  "schema_version": 1,
+  "rejected_at": "<Timestamp>"
+}
+```
+
+- 品質軸（①②③）はまだ除外に使わないため、ここに入るのは安全 NG と採点失敗のみ。
+- 既知の制限: news_pool と rejected_articles 間の移動（再取得で判定が変わった場合の旧 doc 削除）は
+  していない。同 URL は同 id で上書きされるが、別コレクションに残った旧エントリは消えない。
 
 ### 採点失敗時の挙動（fail-closed）
 

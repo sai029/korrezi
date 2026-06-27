@@ -338,31 +338,34 @@ async function fetchGNewsArticles(): Promise<GNewsArticle[]> {
  * ゲートは変換の前に置く（落とす記事に変換コストを払わない）。
  */
 async function ingestArticles(articles: GNewsArticle[]): Promise<number> {
-  // 1. 採点（並列）。安全性を確認できない記事は null（除外）。
+  // 1. 採点（並列）。安全性を確認できない記事は null。
   const reviews = await Promise.all(articles.map(scoreArticle));
+  const scored = articles.map((a, i) => ({ article: a, review: reviews[i] }));
 
-  // 2. ④安全性で除外。品質3軸はまだ除外に使わず記録のみ。
-  const survivors = articles
-    .map((a, i) => ({ article: a, review: reviews[i] }))
-    .filter(
-      (x): x is { article: GNewsArticle; review: QualityReview } =>
-        x.review !== null && x.review.safety.passed,
+  // 2. 合格 / 除外に振り分け。④安全NG と採点失敗(null)を除外、品質3軸は記録のみ。
+  const survivors = scored.filter(
+    (x): x is { article: GNewsArticle; review: QualityReview } =>
+      x.review !== null && x.review.safety.passed,
+  );
+  const rejected = scored.filter(
+    (x) => x.review === null || !x.review.safety.passed,
+  );
+
+  if (rejected.length > 0) {
+    logger.info(
+      `quality gate dropped ${rejected.length}/${articles.length} articles`,
     );
-
-  const dropped = articles.length - survivors.length;
-  if (dropped > 0) {
-    logger.info(`quality gate dropped ${dropped}/${articles.length} articles`);
   }
-  if (survivors.length === 0) return 0;
 
   // 3. 合格分のみ子ども向けに変換（並列）。
   const converted = await Promise.all(
     survivors.map((x) => toChildFriendly(x.article)),
   );
 
-  // 4. WriteBatch で news_pool へ書き込み（採点結果は quality_review に同梱）。
+  // 4. WriteBatch で news_pool（合格）と rejected_articles（除外）へ書き込み。
   const db = getFirestore();
   const batch = db.batch();
+
   survivors.forEach(({ article: a, review }, i) => {
     const id = newsIdFromUrl(a.url);
     const cf = converted[i];
@@ -392,6 +395,26 @@ async function ingestArticles(articles: GNewsArticle[]): Promise<number> {
         schema_version: QUALITY_SCHEMA_VERSION,
         scored_at: Timestamp.now(),
       },
+    });
+  });
+
+  // 除外記事は監査・閾値調整用に rejected_articles/{id} へ保存（同じ id で冪等）。
+  // クライアントには公開しない（Admin SDK 書き込み・Firebase コンソールで確認する想定）。
+  rejected.forEach(({ article: a, review }) => {
+    const id = newsIdFromUrl(a.url);
+    batch.set(db.collection("rejected_articles").doc(id), {
+      original_title: a.title,
+      url: a.url,
+      interest_context: a.source?.name ?? "ニュース",
+      published_at: Timestamp.fromDate(new Date(a.publishedAt)),
+      // review===null は採点失敗(fail-closed/Vertexブロック)、それ以外は④安全NG。
+      rejected_reason: review === null ? "scoring_failed" : "safety",
+      safety_flags: review?.safety.flagged ?? [],
+      scores: review?.scores ?? null,
+      reason: review?.reason ?? "",
+      model: GEMINI_MODEL,
+      schema_version: QUALITY_SCHEMA_VERSION,
+      rejected_at: Timestamp.now(),
     });
   });
 
