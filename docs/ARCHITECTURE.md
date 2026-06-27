@@ -87,14 +87,18 @@ https://console.cloud.google.com/cloudscheduler?project=ai-discovery-app-b3a9d
 Gemini プロンプト (gemini-2.5-flash):
   - 役割: 小学生向けニュース編集者 / 対象: 6〜10歳
   - 出力 JSON (4キー):
-      display_title       : 子ども向けタイトル (20文字以内)
-      display_tagline     : 興味を引く一言 (30文字以内)
-      child_body_with_ruby: 本文2〜4文 + 〔漢字｜よみ〕ルビ
-      parent_summary      : 保護者向け箇条書き (・で始まる2〜3項目)
+      display_title       : 子ども向けタイトル (表示20文字以内 + 〔漢字｜よみ〕ルビ)
+      display_tagline     : 興味を引く一言 (表示30文字以内 + ルビ)
+      child_body_with_ruby: 本文2〜4文 + ルビ
+      parent_summary      : 保護者向け箇条書き (・で始まる2〜3項目・ルビなし)
 
 失敗時: rawFallback() → 生記事をそのままマッピング
 ```
 
+- 子ども向け3キー (display_title / display_tagline / child_body_with_ruby) はルビ markup 付き。
+  唯一の描画経路は `FuriganaText` のため、markup を含んでも崩れない（plain でも可）。
+- news_pool 書き込み時に `child_title_with_ruby = display_title`（ルビ付き）も保存し、CommonView の
+  タイトルにもルビを付ける。
 - Vertex AI 認証: ADC (Cloud Functions 実行サービスアカウント) — API キー不要
 - doc ID: `"news_" + sha1(url).slice(0, 16)` → 再取得時は冪等に上書き
 
