@@ -1,6 +1,6 @@
 # 進捗状況
 
-> 最終更新: 2026-06-20 ／ 要件は [`SPECIFICATION.md`](SPECIFICATION.md) を参照。
+> 最終更新: 2026-06-28 ／ 要件は [`SPECIFICATION.md`](SPECIFICATION.md) を参照。
 
 ## 全体サマリ
 
@@ -17,8 +17,9 @@
 | — | Firebase 初期化（main で initializeApp、失敗時はサンプルへ） | ✅ 完了 |
 | — | Firestore 実連携（data層リポジトリ + 3画面プロバイダ接続） | ✅ 完了 |
 | — | 認証（起動時ログイン画面 / Google・ゲスト / ログアウト） | ✅ 完了 |
-| — | Cloud Functions: GNews 実記事取得（生記事のまま投入） | ✅ 完了（要デプロイ） |
-| — | Cloud Functions（Gemini/AIパイプライン・子ども向け変換） | ⬜ 未着手 |
+| — | Cloud Functions: GNews 実記事取得 + Gemini 子ども向け変換 | ✅ 完了 |
+| — | AI エージェント 3本（パーソナライズ・興味検知・サムネ生成） | ✅ 完了 |
+| — | Firebase Storage + CORS 設定 | ✅ 完了 |
 
 検証: `flutter analyze` → No issues ／ `flutter test` → All passed。
 
@@ -67,12 +68,12 @@
 
 ## 未着手 / 次の候補
 
-1. **Cloud Functions（仕様4章）**: `functions/` で Gemini 連携・3段階の AI DevOps パイプライン。
-   合わせて `news_pool` / `personalized_feed` / `interest_profile` へ実データ投入
+1. **`interest_context` のトピック分類**: 現在は GNews のソース名（"NHK ニュース" 等）が入っている。Gemini でトピック分類（"Science", "Sports" 等）に変換すると、パーソナライズ精度とサムネ品質が向上する
 2. **FCM Push 受信**: 親子トークプロンプト準備・興味マイルストーン到達時の通知 + ディープリンク
 3. **YouTube風メディアグリッド（仕様②）**: タブレット向けグリッド探索
-4. **Firestore セキュリティルール**: `users/{uid}` を本人のみ、`news_pool` は読み取り専用に
+4. **Firestore セキュリティルール**: `users/{uid}` を本人のみ、`news_pool` は読み取り専用に強化
 5. **リアルタイム購読化**: 現状は `.get()` 一括取得。必要に応じて `snapshots()` ストリームへ
+6. **サムネコスト最適化**: `interest_score < 40` の記事は Imagen 生成をスキップ
 
 ### Firestore 実連携（完了）の内容
 - `lib/core/firebase/firebase_providers.dart`: `firebaseReadyProvider` /

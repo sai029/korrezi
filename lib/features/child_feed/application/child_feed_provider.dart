@@ -1,47 +1,128 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/ai/ai_agent_service.dart';
 import '../../../core/firebase/firebase_providers.dart';
 import '../../../shared/models/personalized_feed_item.dart';
 import '../data/feed_repository.dart';
 
 /// Child Mode フィードの状態管理（AsyncNotifier）。
 ///
-/// Firebase が利用可能なら Firestore `/users/{userId}/personalized_feed` を取得し、
-/// 未初期化・データ無し・エラー時はサンプルデータにフォールバックする。
+/// ロード順:
+///   1. personalized_feed（AI パーソナライズ済みキャッシュ）
+///   2. personalized_feed が空なら personalizeArticles を実行して再取得
+///   3. それでも空なら news_pool（生記事）にフォールバック
+///   4. Firebase 未初期化時はサンプルデータにフォールバック
 class ChildFeedNotifier extends AsyncNotifier<List<PersonalizedFeedItem>> {
   FeedRepository? _repo;
+  AiAgentService? _ai;
   String? _userId;
 
   @override
   Future<List<PersonalizedFeedItem>> build() async {
-    // Firebase 未初期化時はサンプルデータで動作。
     if (!ref.watch(firebaseReadyProvider)) return _sampleFeed;
 
     _userId = ref.watch(currentUserIdProvider);
     _repo = ref.watch(feedRepositoryProvider);
+    _ai = ref.watch(aiAgentServiceProvider);
+
+    // Step 1: news_pool から実記事を取得（common と完全に同じソース・同じ順序）
+    List<PersonalizedFeedItem> raw = [];
     try {
-      final items = await _repo!.fetchFeed(_userId!);
-      // 投入前など空のときはサンプルで開発を継続できるようにする。
-      return items.isEmpty ? _sampleFeed : items;
-    } catch (_) {
-      // 権限不足・オフライン等はサンプルにフォールバック。
-      return _sampleFeed;
-    }
+      raw = await _repo!.fetchFeed(_userId!);
+    } catch (_) {}
+
+    if (raw.isEmpty) return _sampleFeed;
+
+    // Step 2: パーソナライズ済みデータをオーバーレイ（任意）
+    // personalized_feed のタイトル・タグライン・生成サムネを上書きし、
+    // 記事の順序・件数は常に news_pool のものを使う。
+    try {
+      final personalized = await _repo!.fetchPersonalizedFeed(_userId!);
+      if (personalized.isNotEmpty) {
+        final pMap = {for (final p in personalized) p.newsId: p};
+        raw = raw.map((item) {
+          final p = pMap[item.newsId];
+          if (p == null) return item;
+          return item.copyWith(
+            displayTitle: p.displayTitle.isNotEmpty
+                ? p.displayTitle
+                : item.displayTitle,
+            displayTagline: p.displayTagline.isNotEmpty
+                ? p.displayTagline
+                : item.displayTagline,
+            // 生成サムネがあれば上書き（Imagen 3 が生成済みの場合）
+            thumbnailConfig:
+                p.thumbnailConfig.optionalGeneratedUrl.isNotEmpty
+                    ? p.thumbnailConfig
+                    : item.thumbnailConfig,
+          );
+        }).toList();
+      }
+    } catch (_) {}
+
+    // Step 3: バックグラウンドでパーソナライズを更新（UIをブロックしない）
+    _schedulePersonalization();
+
+    return raw;
+  }
+
+  /// バックグラウンドで24時間チェックを行い、必要なら personalizeArticles を実行する。
+  ///
+  /// 完了後に personalized_feed（サムネ含む）を再取得して state を更新するため、
+  /// 生成されたサムネが即座にフィードに反映される。
+  void _schedulePersonalization() {
+    Future.microtask(() async {
+      final repo = _repo;
+      final userId = _userId;
+      if (repo == null || userId == null) return;
+
+      try {
+        final shouldPersonalize = await repo.needsPersonalization(userId);
+        if (!shouldPersonalize) return;
+
+        await _ai?.personalizeArticles();
+      } catch (_) {
+        return; // パーソナライズ失敗 → state 更新しない
+      }
+
+      // パーソナライズ成功 → フィードを再取得して state を更新
+      try {
+        List<PersonalizedFeedItem> fresh = await repo.fetchFeed(userId);
+        if (fresh.isEmpty) return;
+
+        final personalized = await repo.fetchPersonalizedFeed(userId);
+        if (personalized.isNotEmpty) {
+          final pMap = {for (final p in personalized) p.newsId: p};
+          fresh = fresh.map((item) {
+            final p = pMap[item.newsId];
+            if (p == null) return item;
+            return item.copyWith(
+              displayTitle: p.displayTitle.isNotEmpty
+                  ? p.displayTitle
+                  : item.displayTitle,
+              displayTagline: p.displayTagline.isNotEmpty
+                  ? p.displayTagline
+                  : item.displayTagline,
+              thumbnailConfig:
+                  p.thumbnailConfig.optionalGeneratedUrl.isNotEmpty
+                      ? p.thumbnailConfig
+                      : item.thumbnailConfig,
+            );
+          }).toList();
+        }
+
+        state = AsyncData(fresh);
+      } catch (_) {}
+    });
   }
 
   /// Telemetry Agent: 記事の閲覧秒数を記録する。
   ///
-  /// ローカル状態を楽観的に更新したうえで、可能なら Firestore へ
-  /// view_duration_seconds / is_viewed を反映する。
+  /// ローカル状態を楽観的に更新したうえで Firestore に反映し、
+  /// 3秒以上の閲覧なら興味検知 AI の自己学習ループも起動する。
   Future<void> recordView(String newsId, int durationSeconds) async {
     final current = state.valueOrNull;
-
-    // interestContext はローカル状態から非同期ギャップの前に取得する。
-    final interestContext = current
-        ?.where((i) => i.newsId == newsId)
-        .firstOrNull
-        ?.interestContext;
-
+    // ローカル状態を楽観的更新
     if (current != null) {
       state = AsyncData([
         for (final item in current)
@@ -58,14 +139,19 @@ class ChildFeedNotifier extends AsyncNotifier<List<PersonalizedFeedItem>> {
     final repo = _repo;
     final userId = _userId;
     if (repo == null || userId == null) return;
+
     try {
       await repo.recordView(userId, newsId, durationSeconds);
-      // 3秒以上見た記事のカテゴリだけスコアに加算（誤スワイプを除外）。
-      if (interestContext != null && durationSeconds >= 3) {
-        await repo.recordInterest(userId, interestContext, durationSeconds);
-      }
+
+      // DISA: スコア計算は Cloud Function に委譲（fire-and-forget）。
+      // 閾値チェック（t_norm < 0.2 = 9秒未満）は Cloud Function 側で行うため、
+      // Flutter 側では全閲覧を送信し、bounce 判定は DISA の calcEngagementValue に任せる。
+      _ai?.updateInterestModel(
+        newsId: newsId,
+        viewDurationSeconds: durationSeconds,
+      );
     } catch (_) {
-      // オフライン等は無視（ローカル状態は更新済み）。
+      // オフライン等は無視（ローカル状態は更新済み）
     }
   }
 }

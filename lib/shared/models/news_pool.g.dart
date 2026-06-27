@@ -8,6 +8,7 @@ part of 'news_pool.dart';
 
 _$NewsPoolImpl _$$NewsPoolImplFromJson(Map<String, dynamic> json) =>
     _$NewsPoolImpl(
+      newsId: json['news_id'] as String? ?? '',
       originalTitle: json['original_title'] as String,
       publishedAt: const TimestampConverter().fromJson(json['published_at']),
       parentSummary: json['parent_summary'] as String,
@@ -25,6 +26,7 @@ _$NewsPoolImpl _$$NewsPoolImplFromJson(Map<String, dynamic> json) =>
 
 Map<String, dynamic> _$$NewsPoolImplToJson(_$NewsPoolImpl instance) =>
     <String, dynamic>{
+      'news_id': instance.newsId,
       'original_title': instance.originalTitle,
       'published_at': const TimestampConverter().toJson(instance.publishedAt),
       'parent_summary': instance.parentSummary,

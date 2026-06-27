@@ -27,17 +27,62 @@ class FeedRepository {
         .orderBy('published_at', descending: true)
         .limit(20)
         .get();
-    return snap.docs.map((d) {
-      final pool = NewsPool.fromJson(d.data());
-      return PersonalizedFeedItem(
-        newsId: d.id,
-        interestContext: pool.interestContext,
-        displayTitle:
-            pool.displayTitle.isNotEmpty ? pool.displayTitle : pool.originalTitle,
-        displayTagline: pool.displayTagline,
-        thumbnailConfig: pool.thumbnailConfig,
-      );
-    }).toList();
+    final items = <PersonalizedFeedItem>[];
+    for (final d in snap.docs) {
+      try {
+        final pool = NewsPool.fromJson(d.data());
+        items.add(PersonalizedFeedItem(
+          newsId: d.id,
+          interestContext: pool.interestContext,
+          displayTitle: pool.childTitleWithRuby.isNotEmpty
+              ? pool.childTitleWithRuby
+              : (pool.displayTitle.isNotEmpty
+                  ? pool.displayTitle
+                  : pool.originalTitle),
+          displayTagline: pool.displayTagline,
+          thumbnailConfig: pool.thumbnailConfig,
+        ));
+      } catch (_) {
+        // フィールド欠損のドキュメントはスキップ
+      }
+    }
+    return items;
+  }
+
+  /// personalized_feed が空か、最終パーソナライズから24時間以上経過していれば true を返す。
+  Future<bool> needsPersonalization(String userId) async {
+    final snap = await _feedRef(userId).limit(1).get();
+    if (snap.docs.isEmpty) return true;
+
+    final raw = snap.docs.first.data()['personalized_at'];
+    if (raw == null) return true;
+
+    final lastRun = (raw as Timestamp).toDate();
+    return DateTime.now().difference(lastRun) > const Duration(hours: 24);
+  }
+
+  /// AI パーソナライズ済みフィードを personalized_feed から取得する。
+  ///
+  /// personalizeArticles Cloud Function が書き込んだ display_title / display_tagline を
+  /// 読み込む。display_title が未設定のドキュメント（テレメトリのみ）はスキップする。
+  Future<List<PersonalizedFeedItem>> fetchPersonalizedFeed(
+      String userId) async {
+    final snap = await _feedRef(userId).limit(20).get();
+
+    final items = <PersonalizedFeedItem>[];
+    for (final d in snap.docs) {
+      final raw = d.data();
+      // display_title が存在しないドキュメントはパーソナライズ前のテレメトリのみ
+      if (raw['display_title'] == null) continue;
+      final data = Map<String, dynamic>.from(raw);
+      data['news_id'] = d.id;
+      try {
+        items.add(PersonalizedFeedItem.fromJson(data));
+      } catch (_) {
+        // フィールド欠損のドキュメントはスキップ
+      }
+    }
+    return items;
   }
 
   /// Telemetry Agent: 記事の閲覧秒数と閲覧済みフラグを記録する。
