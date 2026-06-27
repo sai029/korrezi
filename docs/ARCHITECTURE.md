@@ -254,6 +254,7 @@ AppDrawer (左ドロワー)
 
 | 項目 | 概要 |
 |---|---|
+| 記事品質ゲート（採点AI） | GNews 取得記事を Gemini で4軸採点し、変換前にフィルタ。詳細は [`CONTENT_QUALITY_GATE.md`](CONTENT_QUALITY_GATE.md) |
 | personalized_feed 個別配信 | `interest_profile` スコアを元に Gemini がフィードをユーザー別最適化 |
 | Common View 記事リーダー | 「よんでみる」ボタンの遷移先・記事本文表示の実装 |
 | Parent Dashboard 実データ | `interest_profile` の現スコアをグラフ表示 |
