@@ -66,8 +66,36 @@ AI に記事テキストを入力し、各軸をスコアリング（1〜5）ま
 
 ## データ記録（Firestore）
 
-落とした記事・各軸スコア・判定理由は**捨てずに記録**し、閾値調整と「なぜ載らなかったか」の確認に使う。
-（具体的なフィールド設計は実装時に確定し、`ARCHITECTURE.md` の Firestore スキーマへ反映する。）
+採点結果は合格記事の `news_pool/{id}` に **`quality_review` 入れ子マップ**としてまとめて格納する
+（表示用フィールドはフラットなまま。責務はコード側 `scoreArticle` とデータ側マップの両方で分離）。
+
+```jsonc
+"quality_review": {
+  "verdict": "approved",              // 現状 news_pool に載るのは合格のみ
+  "safety": { "passed": true, "flagged": [] },  // ④安全性。NG なら除外され doc ごと存在しない
+  "scores": {                          // ①②③（1〜5 / 判定不能は null）
+    "educationalValue": 4,
+    "thinkingHook": null,              // 短文で判定不能のとき null
+    "reliability": 3
+  },
+  "reason": "環境問題の背景に触れた教育的な記事。",
+  "model": "gemini-2.5-flash",
+  "schema_version": 1,
+  "scored_at": "<Timestamp>"
+}
+```
+
+- **安全 NG（④）の記事は news_pool に書き込まれない**ため、現状「落とした記事」のスコアは残らない。
+  品質軸は記録のみなので落ちるのは安全 NG の少数のみ。将来それも監査したくなったら専用コレクションを足す。
+- クライアントは `quality_review` を読まなくてよい（未知フィールドは Dart モデルが無視する）。
+- 実装: `functions/src/index.ts` の `scoreArticle`（採点）→ `ingestArticles`（ゲート→変換→書込）。
+  採点モデルは `temperature: 0` ＋ `responseSchema` ＋ `safetySettings`（BLOCK_LOW_AND_ABOVE）。
+
+### 採点失敗時の挙動（fail-closed）
+
+採点呼び出しが失敗した（＝安全性を確認できない）記事は **除外**する。Vertex の安全フィルタが
+応答自体をブロックした場合も応答が空になり、同様に除外される。Gemini 障害時はフィードが空に
+なりうるが、未検証の記事を子どもに見せるよりは安全と判断した。
 
 ---
 

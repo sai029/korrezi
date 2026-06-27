@@ -109,8 +109,11 @@ Gemini プロンプト (gemini-2.5-flash):
 | `published_at` | Timestamp | 記事の公開日時 |
 | `child_body_with_ruby` | string | Gemini 生成の子ども向け本文 (ルビ付き) |
 | `parent_summary` | string | Gemini 生成の保護者向け箇条書き |
+| `quality_review` | map | 採点ゲートの結果 (`safety`/`scores`/`reason` 等)。詳細は [`CONTENT_QUALITY_GATE.md`](CONTENT_QUALITY_GATE.md) |
 
 書き込み: Cloud Functions (Admin SDK) のみ。クライアントからは読み取り専用。
+取り込みは GNews 取得 → **採点ゲート (`scoreArticle`)** → 合格分のみ `toChildFriendly` 変換 → 書き込み。
+安全 NG は除外し news_pool に載せない。品質3軸は当面「記録のみ」（除外には未使用）。
 
 #### `/users/{uid}/personalized_feed/{newsId}` — ユーザー別
 | フィールド | 型 | 内容 |

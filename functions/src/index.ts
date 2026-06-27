@@ -7,7 +7,12 @@ import { defineSecret } from "firebase-functions/params";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { logger } from "firebase-functions";
-import { VertexAI } from "@google-cloud/vertexai";
+import {
+  VertexAI,
+  SchemaType,
+  HarmCategory,
+  HarmBlockThreshold,
+} from "@google-cloud/vertexai";
 
 initializeApp();
 
@@ -21,6 +26,9 @@ const GNEWS_API_KEY = defineSecret("GNEWS_API_KEY");
 // API キーは不要。モデルが広く利用可能な us-central1 を既定にする。
 const VERTEX_LOCATION = "us-central1";
 const GEMINI_MODEL = "gemini-2.5-flash";
+
+// quality_review マップの構造バージョン。後で項目を変えたら上げる。
+const QUALITY_SCHEMA_VERSION = 1;
 
 /** GNews API のレスポンス記事。 */
 interface GNewsArticle {
@@ -46,6 +54,24 @@ interface ChildFriendly {
   parentSummary: string;
 }
 
+/**
+ * 採点ゲートの結果。詳細な方針は docs/CONTENT_QUALITY_GATE.md を参照。
+ *
+ * - safety.passed=false の記事は除外され news_pool に載らない（④即除外）。
+ * - 品質3軸スコアは「記録のみ」。閾値が固まるまで除外には使わない（①②③）。
+ * - scores の各値は 1〜5。判定不能のときは null（特に thinkingHook）。
+ */
+interface QualityReview {
+  verdict: "approved";
+  safety: { passed: boolean; flagged: string[] };
+  scores: {
+    educationalValue: number | null;
+    thinkingHook: number | null;
+    reliability: number | null;
+  };
+  reason: string;
+}
+
 /** 記事 URL から安定した doc id を作る（再取得時は冪等に上書き）。 */
 function newsIdFromUrl(url: string): string {
   const hash = createHash("sha1").update(url).digest("hex").slice(0, 16);
@@ -59,6 +85,17 @@ function toTagline(description: string | null): string {
   return `${text.slice(0, 79)}…`;
 }
 
+/** GNews 記事を採点・変換用の入力テキストへ整える（両処理で共通）。 */
+function articleSource(a: GNewsArticle): string {
+  // GNews 無料プランは content が冒頭のみ（途中で切れる）。
+  // description は完結した概要なので、こちらを主要な情報源として優先する。
+  return [
+    `タイトル: ${a.title}`,
+    `概要（完全）: ${a.description ?? ""}`,
+    `本文（途中で切れている可能性あり）: ${a.content ?? ""}`,
+  ].join("\n");
+}
+
 /** Gemini 変換に失敗したときの素朴なフォールバック（生記事のまま）。 */
 function rawFallback(a: GNewsArticle): ChildFriendly {
   return {
@@ -69,20 +106,154 @@ function rawFallback(a: GNewsArticle): ChildFriendly {
   };
 }
 
-// Vertex AI クライアントは関数インスタンス内で使い回す。
-let cachedModel: ReturnType<VertexAI["getGenerativeModel"]> | null = null;
-function getGeminiModel() {
-  if (cachedModel) return cachedModel;
-  const project = process.env.GCLOUD_PROJECT;
-  const vertex = new VertexAI({ project, location: VERTEX_LOCATION });
-  cachedModel = vertex.getGenerativeModel({
+// Vertex AI クライアントは関数インスタンス内で使い回す（変換用・採点用で別設定）。
+let cachedVertex: VertexAI | null = null;
+function getVertex(): VertexAI {
+  if (!cachedVertex) {
+    cachedVertex = new VertexAI({
+      project: process.env.GCLOUD_PROJECT,
+      location: VERTEX_LOCATION,
+    });
+  }
+  return cachedVertex;
+}
+
+// 子ども向け変換は創作要素があるため temperature 0.7。
+let cachedTransformModel: ReturnType<VertexAI["getGenerativeModel"]> | null =
+  null;
+function getTransformModel() {
+  if (cachedTransformModel) return cachedTransformModel;
+  cachedTransformModel = getVertex().getGenerativeModel({
     model: GEMINI_MODEL,
     generationConfig: {
       temperature: 0.7,
       responseMimeType: "application/json",
     },
   });
-  return cachedModel;
+  return cachedTransformModel;
+}
+
+// 子ども向けニュースなので暴力・性的・差別・危険表現は厳しめ（低レベル以上をブロック）。
+const CHILD_SAFETY_SETTINGS = [
+  HarmCategory.HARM_CATEGORY_HARASSMENT,
+  HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+  HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+  HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+].map((category) => ({
+  category,
+  threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
+}));
+
+// 採点（LLM-as-a-Judge）はブレてはいけないので temperature 0 ＋ 構造化出力で固定。
+let cachedJudgeModel: ReturnType<VertexAI["getGenerativeModel"]> | null = null;
+function getJudgeModel() {
+  if (cachedJudgeModel) return cachedJudgeModel;
+  cachedJudgeModel = getVertex().getGenerativeModel({
+    model: GEMINI_MODEL,
+    safetySettings: CHILD_SAFETY_SETTINGS,
+    generationConfig: {
+      temperature: 0,
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: SchemaType.OBJECT,
+        properties: {
+          safe: { type: SchemaType.BOOLEAN },
+          safety_flags: {
+            type: SchemaType.ARRAY,
+            items: { type: SchemaType.STRING },
+          },
+          educational_value: { type: SchemaType.INTEGER },
+          thinking_hook: { type: SchemaType.INTEGER },
+          reliability: { type: SchemaType.INTEGER },
+          reason: { type: SchemaType.STRING },
+        },
+        required: [
+          "safe",
+          "safety_flags",
+          "educational_value",
+          "thinking_hook",
+          "reliability",
+          "reason",
+        ],
+      },
+    },
+  });
+  return cachedJudgeModel;
+}
+
+/** 1〜5 の整数へ正規化。範囲外・非数・0（判定不能）は null。 */
+function clampScore(v: unknown): number | null {
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n)) return null;
+  const i = Math.round(n);
+  return i >= 1 && i <= 5 ? i : null;
+}
+
+/**
+ * 1記事を4軸で採点する（docs/CONTENT_QUALITY_GATE.md）。
+ *
+ * - ④安全性は safe=false なら即除外対象。
+ * - ①②③は 1〜5 のスコア（②は短文で判定不能なら 0=null を許容）。
+ *
+ * 採点に失敗した（＝安全性を確認できない）場合は、子ども向けアプリの安全側に倒して
+ * **除外**する（fail-closed）。Gemini 障害時はフィードが空になりうるが、未検証の記事を
+ * 子どもに見せるよりは安全と判断する。
+ */
+async function scoreArticle(a: GNewsArticle): Promise<QualityReview | null> {
+  const prompt = [
+    "あなたは子ども向けニュースアプリの編集審査AIです。次の記事を4つの軸で評価し、",
+    "指定のJSONだけを返してください（説明文は付けない）。",
+    "",
+    "① educational_value（教育的価値・テーマ適正）: 1〜5。",
+    "  高=SDGs/科学/技術/国際情勢/環境/経済の仕組み/文化・歴史/社会課題の解決事例など、",
+    "  子どもの視野を広げ学びに繋がるテーマ。",
+    "  低=芸能スキャンダル/ゴシップ/凄惨な事件事故/単なる流行紹介/政治的プロパガンダ。",
+    "② thinking_hook（思考のフック）: 1〜5。背景(なぜ起きたか)や影響(これからどうなるか)が",
+    "  書かれているほど高い。『〇〇が起きました』だけの一行ニュースは低い。",
+    "  概要が短すぎて判定できない場合のみ 0 を返す。",
+    "③ reliability（信頼性・客観性）: 1〜5。事実と意見が区別され、煽り表現が無く、",
+    "  複数視点に触れているほど高い。過激・感情的な煽りは低い。",
+    "④ safety（安全面）: 残虐/性的/差別/自殺・自傷、または過度に恐怖を煽る描写が含まれるなら",
+    "  safe=false。該当する種類を safety_flags に日本語で列挙（無ければ空配列）。",
+    "",
+    "reason には判定理由を日本語1文で簡潔に書く。",
+    "",
+    "記事:",
+    articleSource(a),
+  ].join("\n");
+
+  try {
+    const model = getJudgeModel();
+    const result = await model.generateContent({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+    });
+    const text =
+      result.response.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    // Vertex が安全フィルタで応答自体をブロックした場合は text が空 → catch で除外。
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+
+    const flagged = Array.isArray(parsed.safety_flags)
+      ? parsed.safety_flags.filter((x): x is string => typeof x === "string")
+      : [];
+    const passed = parsed.safe === true && flagged.length === 0;
+
+    return {
+      verdict: "approved",
+      safety: { passed, flagged },
+      scores: {
+        educationalValue: clampScore(parsed.educational_value),
+        thinkingHook: clampScore(parsed.thinking_hook),
+        reliability: clampScore(parsed.reliability),
+      },
+      reason: typeof parsed.reason === "string" ? parsed.reason : "",
+    };
+  } catch (err) {
+    logger.warn("scoreArticle failed; dropping article (fail-closed)", {
+      url: a.url,
+      err: `${err}`,
+    });
+    return null;
+  }
 }
 
 /**
@@ -92,14 +263,6 @@ function getGeminiModel() {
  * 失敗時は生記事へフォールバックして処理を止めない。
  */
 async function toChildFriendly(a: GNewsArticle): Promise<ChildFriendly> {
-  // GNews 無料プランは content が冒頭のみ（途中で切れる）。
-  // description は完結した概要なので、こちらを主要な情報源として優先する。
-  const source = [
-    `タイトル: ${a.title}`,
-    `概要（完全）: ${a.description ?? ""}`,
-    `本文（途中で切れている可能性あり）: ${a.content ?? ""}`,
-  ].join("\n");
-
   const prompt = [
     "あなたは小学生向けニュースの編集者です。次のニュース記事を、6〜10歳の子どもが",
     "読めるように、やさしい日本語で書き直してください。難しい言葉は避け、",
@@ -113,11 +276,11 @@ async function toChildFriendly(a: GNewsArticle): Promise<ChildFriendly> {
     '- "parent_summary": 保護者向けの箇条書き要約。各行を「・」で始め、2〜3項目。',
     "",
     "記事:",
-    source,
+    articleSource(a),
   ].join("\n");
 
   try {
-    const model = getGeminiModel();
+    const model = getTransformModel();
     const result = await model.generateContent({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
     });
@@ -145,11 +308,102 @@ async function toChildFriendly(a: GNewsArticle): Promise<ChildFriendly> {
   }
 }
 
+/** GNews top-headlines のエンドポイント URL を組み立てる。 */
+function gnewsEndpoint(): string {
+  const params = new URLSearchParams({
+    lang: "ja",
+    country: "jp",
+    max: "10",
+    apikey: GNEWS_API_KEY.value(),
+  });
+  return `https://gnews.io/api/v4/top-headlines?${params.toString()}`;
+}
+
+/** GNews から日本語トップ記事を取得する。失敗時は例外を投げる。 */
+async function fetchGNewsArticles(): Promise<GNewsArticle[]> {
+  const res = await fetch(gnewsEndpoint());
+  if (!res.ok) {
+    const body = await res.text();
+    logger.error("GNews request failed", { status: res.status, body });
+    throw new Error(`GNews status ${res.status}`);
+  }
+  const data = (await res.json()) as GNewsResponse;
+  return data.articles ?? [];
+}
+
 /**
- * GNews から日本語トップ記事を取得し、Gemini で子ども向けに変換して Firestore へ書き込む。
+ * 記事群を「採点ゲート → 合格分のみ子ども向け変換 → news_pool 書き込み」まで処理し、
+ * 実際に書き込んだ件数を返す。fetchNews / refreshNewsPool の共通処理。
  *
- * - `/news_pool/{id}`                     … 全ユーザー共通の元記事（子ども向け本文＋親要約）
- * - `/users/{uid}/personalized_feed/{id}` … 呼び出しユーザー向けフィード
+ * ゲートは変換の前に置く（落とす記事に変換コストを払わない）。
+ */
+async function ingestArticles(articles: GNewsArticle[]): Promise<number> {
+  // 1. 採点（並列）。安全性を確認できない記事は null（除外）。
+  const reviews = await Promise.all(articles.map(scoreArticle));
+
+  // 2. ④安全性で除外。品質3軸はまだ除外に使わず記録のみ。
+  const survivors = articles
+    .map((a, i) => ({ article: a, review: reviews[i] }))
+    .filter(
+      (x): x is { article: GNewsArticle; review: QualityReview } =>
+        x.review !== null && x.review.safety.passed,
+    );
+
+  const dropped = articles.length - survivors.length;
+  if (dropped > 0) {
+    logger.info(`quality gate dropped ${dropped}/${articles.length} articles`);
+  }
+  if (survivors.length === 0) return 0;
+
+  // 3. 合格分のみ子ども向けに変換（並列）。
+  const converted = await Promise.all(
+    survivors.map((x) => toChildFriendly(x.article)),
+  );
+
+  // 4. WriteBatch で news_pool へ書き込み（採点結果は quality_review に同梱）。
+  const db = getFirestore();
+  const batch = db.batch();
+  survivors.forEach(({ article: a, review }, i) => {
+    const id = newsIdFromUrl(a.url);
+    const cf = converted[i];
+
+    // 画像があれば generated モードで NetworkImage 表示、無ければ text_overlay。
+    const image = a.image ?? "";
+    const thumbnailConfig = image
+      ? { mode: "generated", base_asset: "", optional_generated_url: image }
+      : { mode: "text_overlay", base_asset: "", optional_generated_url: "" };
+
+    batch.set(db.collection("news_pool").doc(id), {
+      original_title: a.title,
+      published_at: Timestamp.fromDate(new Date(a.publishedAt)),
+      parent_summary: cf.parentSummary,
+      child_body_with_ruby: cf.childBodyWithRuby,
+      display_title: cf.displayTitle,
+      display_tagline: cf.displayTagline,
+      thumbnail_config: thumbnailConfig,
+      interest_context: a.source?.name ?? "ニュース",
+      // 採点ゲートの結果。品質3軸は記録のみ（除外には未使用）。
+      quality_review: {
+        verdict: review.verdict,
+        safety: review.safety,
+        scores: review.scores,
+        reason: review.reason,
+        model: GEMINI_MODEL,
+        schema_version: QUALITY_SCHEMA_VERSION,
+        scored_at: Timestamp.now(),
+      },
+    });
+  });
+
+  await batch.commit();
+  return survivors.length;
+}
+
+/**
+ * GNews から日本語トップ記事を取得し、採点ゲートを通過した記事を Gemini で
+ * 子ども向けに変換して Firestore へ書き込む。
+ *
+ * - `/news_pool/{id}` … 全ユーザー共通の元記事（子ども向け本文＋親要約＋採点結果）
  */
 export const fetchNews = onCall(
   { secrets: [GNEWS_API_KEY], timeoutSeconds: 300, memory: "512MiB" },
@@ -159,80 +413,28 @@ export const fetchNews = onCall(
       throw new HttpsError("unauthenticated", "ログインが必要です。");
     }
 
-    const params = new URLSearchParams({
-      lang: "ja",
-      country: "jp",
-      max: "10",
-      apikey: GNEWS_API_KEY.value(),
-    });
-    const endpoint = `https://gnews.io/api/v4/top-headlines?${params.toString()}`;
-
-    let data: GNewsResponse;
+    let articles: GNewsArticle[];
     try {
-      const res = await fetch(endpoint);
-      if (!res.ok) {
-        const body = await res.text();
-        logger.error("GNews request failed", { status: res.status, body });
-        throw new HttpsError(
-          "unavailable",
-          `GNews API エラー (status ${res.status})`,
-        );
-      }
-      data = (await res.json()) as GNewsResponse;
+      articles = await fetchGNewsArticles();
     } catch (err) {
-      if (err instanceof HttpsError) throw err;
-      logger.error("GNews fetch threw", err);
+      logger.error("GNews fetch failed", err);
       throw new HttpsError("unavailable", "GNews への接続に失敗しました。");
     }
 
-    const articles = data.articles ?? [];
     if (articles.length === 0) {
       return { count: 0 };
     }
 
-    // 各記事を Gemini で子ども向けに変換（並列）。失敗分は生記事へフォールバック。
-    const converted = await Promise.all(articles.map(toChildFriendly));
-
-    const db = getFirestore();
-    const batch = db.batch();
-
-    articles.forEach((a, i) => {
-      const id = newsIdFromUrl(a.url);
-      const cf = converted[i];
-
-      // 画像があれば generated モードで NetworkImage 表示、無ければ text_overlay。
-      const image = a.image ?? "";
-      const thumbnailConfig = image
-        ? { mode: "generated", base_asset: "", optional_generated_url: image }
-        : { mode: "text_overlay", base_asset: "", optional_generated_url: "" };
-
-      // /news_pool/{id} … 全ユーザー共通の表示データ。
-      // personalized_feed は個人テレメトリ（recordView）のみに使い、
-      // Cloud Functions からは書き込まない。
-      batch.set(db.collection("news_pool").doc(id), {
-        original_title: a.title,
-        published_at: Timestamp.fromDate(new Date(a.publishedAt)),
-        parent_summary: cf.parentSummary,
-        child_body_with_ruby: cf.childBodyWithRuby,
-        display_title: cf.displayTitle,
-        display_tagline: cf.displayTagline,
-        thumbnail_config: thumbnailConfig,
-        interest_context: a.source?.name ?? "ニュース",
-      });
-    });
-
-    await batch.commit();
-    logger.info(`fetchNews wrote ${articles.length} articles for ${uid}`);
-    return { count: articles.length };
+    const count = await ingestArticles(articles);
+    logger.info(`fetchNews wrote ${count} articles for ${uid}`);
+    return { count };
   },
 );
 
 /**
- * 毎朝6時(JST)に GNews を取得し、news_pool を自動更新する。
+ * 毎朝6時(JST)に GNews を取得し、採点ゲートを通して news_pool を自動更新する。
  *
  * personalized_feed はユーザーごとに異なるため更新しない。
- * ユーザーが次回起動したときに fetchNews を手動トリガーするか、
- * 将来的に interest_profile を元に個別配信するパイプラインで対応する。
  */
 export const refreshNewsPool = onSchedule(
   {
@@ -243,60 +445,20 @@ export const refreshNewsPool = onSchedule(
     memory: "512MiB",
   },
   async () => {
-    const params = new URLSearchParams({
-      lang: "ja",
-      country: "jp",
-      max: "10",
-      apikey: GNEWS_API_KEY.value(),
-    });
-    const endpoint = `https://gnews.io/api/v4/top-headlines?${params.toString()}`;
-
-    let data: GNewsResponse;
+    let articles: GNewsArticle[];
     try {
-      const res = await fetch(endpoint);
-      if (!res.ok) {
-        logger.error("GNews request failed", {
-          status: res.status,
-          body: await res.text(),
-        });
-        return;
-      }
-      data = (await res.json()) as GNewsResponse;
+      articles = await fetchGNewsArticles();
     } catch (err) {
-      logger.error("GNews fetch threw", err);
+      logger.error("GNews fetch failed", err);
       return;
     }
 
-    const articles = data.articles ?? [];
     if (articles.length === 0) {
       logger.info("refreshNewsPool: no articles returned");
       return;
     }
 
-    const converted = await Promise.all(articles.map(toChildFriendly));
-
-    const db = getFirestore();
-    const batch = db.batch();
-    articles.forEach((a, i) => {
-      const id = newsIdFromUrl(a.url);
-      const cf = converted[i];
-      const image = a.image ?? "";
-      const thumbnailConfig = image
-        ? { mode: "generated", base_asset: "", optional_generated_url: image }
-        : { mode: "text_overlay", base_asset: "", optional_generated_url: "" };
-      batch.set(db.collection("news_pool").doc(id), {
-        original_title: a.title,
-        published_at: Timestamp.fromDate(new Date(a.publishedAt)),
-        parent_summary: cf.parentSummary,
-        child_body_with_ruby: cf.childBodyWithRuby,
-        display_title: cf.displayTitle,
-        display_tagline: cf.displayTagline,
-        thumbnail_config: thumbnailConfig,
-        interest_context: a.source?.name ?? "ニュース",
-      });
-    });
-
-    await batch.commit();
-    logger.info(`refreshNewsPool wrote ${articles.length} articles to news_pool`);
+    const count = await ingestArticles(articles);
+    logger.info(`refreshNewsPool wrote ${count} articles to news_pool`);
   },
 );
