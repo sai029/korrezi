@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>CLIENT_ID</key>
-	<string>879396917356-gileohev46j0phir4d22olucg49tpoim.apps.googleusercontent.com</string>
+	<string>879396917356-njiipmbn660pdjbrh2q3ac9brini78tn.apps.googleusercontent.com</string>
 	<key>REVERSED_CLIENT_ID</key>
-	<string>com.googleusercontent.apps.879396917356-gileohev46j0phir4d22olucg49tpoim</string>
+	<string>com.googleusercontent.apps.879396917356-njiipmbn660pdjbrh2q3ac9brini78tn</string>
 	<key>ANDROID_CLIENT_ID</key>
 	<string>879396917356-v7p9uso2jc976b5mapum4chekhikjfc2.apps.googleusercontent.com</string>
 	<key>API_KEY</key>
@@ -15,7 +15,7 @@
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.example.flutterApplication1</string>
+	<string>com.news.flutterApplication1</string>
 	<key>PROJECT_ID</key>
 	<string>ai-discovery-app-b3a9d</string>
 	<key>STORAGE_BUCKET</key>
@@ -31,6 +31,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:879396917356:ios:c5f69ef3a8a7a0c6f78849</string>
+	<string>1:879396917356:ios:d30bb856f5e4bd27f78849</string>
 </dict>
 </plist>
