@@ -69,10 +69,13 @@
 
 1. **Cloud Functions（仕様4章）**: `functions/` で Gemini 連携・3段階の AI DevOps パイプライン。
    合わせて `news_pool` / `personalized_feed` / `interest_profile` へ実データ投入
-2. **FCM Push 受信**: 親子トークプロンプト準備・興味マイルストーン到達時の通知 + ディープリンク
-3. **YouTube風メディアグリッド（仕様②）**: タブレット向けグリッド探索
-4. **Firestore セキュリティルール**: `users/{uid}` を本人のみ、`news_pool` は読み取り専用に
-5. **リアルタイム購読化**: 現状は `.get()` 一括取得。必要に応じて `snapshots()` ストリームへ
+2. **記事品質ゲート（採点AI）**: GNews 取得記事を Gemini で4軸採点し、`toChildFriendly` の前段で
+   フィルタ。安全性は即除外＋品質軸は記録のみ→閾値確定後に自動除外（ハイブリッド）。
+   方針: [`CONTENT_QUALITY_GATE.md`](CONTENT_QUALITY_GATE.md)
+3. **FCM Push 受信**: 親子トークプロンプト準備・興味マイルストーン到達時の通知 + ディープリンク
+4. **YouTube風メディアグリッド（仕様②）**: タブレット向けグリッド探索
+5. **Firestore セキュリティルール**: `users/{uid}` を本人のみ、`news_pool` は読み取り専用に
+6. **リアルタイム購読化**: 現状は `.get()` 一括取得。必要に応じて `snapshots()` ストリームへ
 
 ### Firestore 実連携（完了）の内容
 - `lib/core/firebase/firebase_providers.dart`: `firebaseReadyProvider` /
