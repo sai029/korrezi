@@ -12,6 +12,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // 除外記事ログ: 採点ゲートで落とした記事の監査用。クライアントからは読み書き不可
+    // （Admin SDK のみ書き込み／Firebase コンソールで確認する）。
+    match /rejected_articles/{newsId} {
+      allow read, write: if false;
+    }
+
     // パーソナライズフィード: 本人のみ読み書き可（テレメトリの recordView のみ書き込む）。
     match /users/{userId}/personalized_feed/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;

@@ -60,20 +60,20 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyAaerLu7Oe406x85dKCHRKMyoOb2lKJILU',
-    appId: '1:879396917356:ios:c5f69ef3a8a7a0c6f78849',
+    appId: '1:879396917356:ios:d30bb856f5e4bd27f78849',
     messagingSenderId: '879396917356',
     projectId: 'ai-discovery-app-b3a9d',
     storageBucket: 'ai-discovery-app-b3a9d.firebasestorage.app',
-    iosBundleId: 'com.example.flutterApplication1',
+    iosBundleId: 'com.news.flutterApplication1',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
     apiKey: 'AIzaSyAaerLu7Oe406x85dKCHRKMyoOb2lKJILU',
-    appId: '1:879396917356:ios:c5f69ef3a8a7a0c6f78849',
+    appId: '1:879396917356:ios:d30bb856f5e4bd27f78849',
     messagingSenderId: '879396917356',
     projectId: 'ai-discovery-app-b3a9d',
     storageBucket: 'ai-discovery-app-b3a9d.firebasestorage.app',
-    iosBundleId: 'com.example.flutterApplication1',
+    iosBundleId: 'com.news.flutterApplication1',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(

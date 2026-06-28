@@ -87,14 +87,18 @@ https://console.cloud.google.com/cloudscheduler?project=ai-discovery-app-b3a9d
 Gemini プロンプト (gemini-2.5-flash):
   - 役割: 小学生向けニュース編集者 / 対象: 6〜10歳
   - 出力 JSON (4キー):
-      display_title       : 子ども向けタイトル (20文字以内)
-      display_tagline     : 興味を引く一言 (30文字以内)
-      child_body_with_ruby: 本文2〜4文 + 〔漢字｜よみ〕ルビ
-      parent_summary      : 保護者向け箇条書き (・で始まる2〜3項目)
+      display_title       : 子ども向けタイトル (表示20文字以内 + 〔漢字｜よみ〕ルビ)
+      display_tagline     : 興味を引く一言 (表示30文字以内 + ルビ)
+      child_body_with_ruby: 本文2〜4文 + ルビ
+      parent_summary      : 保護者向け箇条書き (・で始まる2〜3項目・ルビなし)
 
 失敗時: rawFallback() → 生記事をそのままマッピング
 ```
 
+- 子ども向け3キー (display_title / display_tagline / child_body_with_ruby) はルビ markup 付き。
+  唯一の描画経路は `FuriganaText` のため、markup を含んでも崩れない（plain でも可）。
+- news_pool 書き込み時に `child_title_with_ruby = display_title`（ルビ付き）も保存し、CommonView の
+  タイトルにもルビを付ける。
 - Vertex AI 認証: ADC (Cloud Functions 実行サービスアカウント) — API キー不要
 - doc ID: `"news_" + sha1(url).slice(0, 16)` → 再取得時は冪等に上書き
 
@@ -109,8 +113,15 @@ Gemini プロンプト (gemini-2.5-flash):
 | `published_at` | Timestamp | 記事の公開日時 |
 | `child_body_with_ruby` | string | Gemini 生成の子ども向け本文 (ルビ付き) |
 | `parent_summary` | string | Gemini 生成の保護者向け箇条書き |
+| `quality_review` | map | 採点ゲートの結果 (`safety`/`scores`/`reason` 等)。詳細は [`CONTENT_QUALITY_GATE.md`](CONTENT_QUALITY_GATE.md) |
 
 書き込み: Cloud Functions (Admin SDK) のみ。クライアントからは読み取り専用。
+取り込みは GNews 取得 → **採点ゲート (`scoreArticle`)** → 合格分のみ `toChildFriendly` 変換 → 書き込み。
+安全 NG は除外し news_pool に載せない。品質3軸は当面「記録のみ」（除外には未使用）。
+
+#### `/rejected_articles/{newsId}` — 採点ゲートで除外した記事（監査用）
+落とした記事（安全 NG / 採点失敗）を `rejected_reason`・`safety_flags`・`scores`・`reason` 付きで保存。
+**クライアント非公開**（`firestore.rules` で deny、Admin SDK のみ書き込み）。詳細は [`CONTENT_QUALITY_GATE.md`](CONTENT_QUALITY_GATE.md)。
 
 #### `/users/{uid}/personalized_feed/{newsId}` — ユーザー別
 | フィールド | 型 | 内容 |
@@ -254,6 +265,7 @@ AppDrawer (左ドロワー)
 
 | 項目 | 概要 |
 |---|---|
+| 記事品質ゲート（採点AI） | GNews 取得記事を Gemini で4軸採点し、変換前にフィルタ。詳細は [`CONTENT_QUALITY_GATE.md`](CONTENT_QUALITY_GATE.md) |
 | personalized_feed 個別配信 | `interest_profile` スコアを元に Gemini がフィードをユーザー別最適化 |
 | Common View 記事リーダー | 「よんでみる」ボタンの遷移先・記事本文表示の実装 |
 | Parent Dashboard 実データ | `interest_profile` の現スコアをグラフ表示 |
