@@ -323,11 +323,9 @@ async function ingestArticles(articles: GNewsArticle[]): Promise<number> {
     const id = newsIdFromUrl(a.url);
     const cf = converted[i];
 
-    // 画像があれば generated モードで NetworkImage 表示、無ければ text_overlay。
-    const image = a.image ?? "";
-    const thumbnailConfig = image
-      ? { mode: "generated", base_asset: "", optional_generated_url: image }
-      : { mode: "text_overlay", base_asset: "", optional_generated_url: "" };
+    // GNews の画像 URL は CORS でブロックされるため使わない。
+    // 常に text_overlay で保存し、personalizeArticles の Imagen 3 が後で生成する。
+    const thumbnailConfig = { mode: "text_overlay", base_asset: "", optional_generated_url: "" };
 
     batch.set(db.collection("news_pool").doc(id), {
       original_title: a.title,
@@ -336,9 +334,9 @@ async function ingestArticles(articles: GNewsArticle[]): Promise<number> {
       child_body_with_ruby: cf.childBodyWithRuby,
       display_title: cf.displayTitle,
       display_tagline: cf.displayTagline,
-      // CommonView 用のルビ付きタイトル（display_title と同じルビ付き文字列）。
-      child_title_with_ruby: cf.displayTitle,
+      child_title_with_ruby: cf.childTitleWithRuby,
       thumbnail_config: thumbnailConfig,
+      char_count: countCharsForReading(cf.childBodyWithRuby),
       interest_context: a.source?.name ?? "ニュース",
       // 採点ゲートの結果。品質3軸は記録のみ（除外には未使用）。
       quality_review: {
