@@ -7,8 +7,8 @@ import '../../../shared/models/personalized_feed_item.dart';
 import '../../../shared/widgets/bouncy_tap.dart';
 import '../../../shared/widgets/feed_thumbnail.dart';
 import '../../../shared/widgets/furigana_text.dart';
-import '../../common_view/application/common_view_provider.dart';
 import '../application/child_feed_provider.dart';
+import '../../common_view/application/favorites_provider.dart';
 
 /// Child Mode (タブレット・縦) TikTok風エンドレス縦スクロールフィード。
 ///
@@ -128,19 +128,15 @@ class _FeedPage extends ConsumerWidget {
   final PersonalizedFeedItem item;
   final int index;
 
-  void _openInCommon(BuildContext context, WidgetRef ref) {
-    // child の newsId で common 配列内の対応インデックスを探す。
-    // 見つからなければ先頭を表示（フォールバック）。
-    final commonArticles = ref.read(commonViewProvider).valueOrNull ?? [];
-    final idx = commonArticles.indexWhere((a) => a.newsId == item.newsId);
-    ref.read(selectedArticleIndexProvider.notifier).state =
-        idx >= 0 ? idx : 0;
-    context.go('/common');
+  void _openInCommon(BuildContext context) {
+    context.go('/common/article/${item.newsId}');
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final textTheme = Theme.of(context).textTheme;
+    final favoriteIds = ref.watch(favoritesProvider).valueOrNull ?? {};
+    final isFavorited = favoriteIds.contains(item.newsId);
 
     return FeedThumbnail(
       config: item.thumbnailConfig,
@@ -198,21 +194,34 @@ class _FeedPage extends ConsumerWidget {
                 Row(
                   children: [
                     BouncyTap(
-                      onTap: () => _openInCommon(context, ref),
+                      onTap: () => _openInCommon(context),
                       child: FilledButton.icon(
-                        onPressed: () => _openInCommon(context, ref),
+                        onPressed: () => _openInCommon(context),
                         icon: const Icon(Icons.menu_book),
                         label: const Text('よんでみる'),
                       ),
                     ),
                     const SizedBox(width: AppSpacing.space3),
                     BouncyTap(
-                      onTap: () {
-                        // TODO: 記事お気に入り / Telemetry へ送る。
-                      },
+                      onTap: () => ref
+                          .read(favoritesProvider.notifier)
+                          .toggle(item.newsId),
                       child: IconButton.filledTonal(
-                        onPressed: () {},
-                        icon: const Icon(Icons.favorite_border),
+                        onPressed: () => ref
+                            .read(favoritesProvider.notifier)
+                            .toggle(item.newsId),
+                        icon: AnimatedSwitcher(
+                          duration: AppMotion.durFast,
+                          child: Icon(
+                            isFavorited
+                                ? Icons.favorite
+                                : Icons.favorite_border,
+                            key: ValueKey(isFavorited),
+                            color: isFavorited
+                                ? AppColors.brandPrimary
+                                : null,
+                          ),
+                        ),
                       ),
                     ),
                   ],

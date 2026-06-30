@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/child_feed/presentation/child_feed_screen.dart';
+import '../../features/common_view/presentation/article_detail_screen.dart';
 import '../../features/common_view/presentation/common_view_screen.dart';
 import '../../features/parent_dashboard/presentation/parent_dashboard_screen.dart';
 import '../../shared/widgets/shell_scaffold.dart';
@@ -58,6 +59,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             GoRoute(
               path: '/common',
               builder: (context, state) => const CommonViewScreen(),
+              routes: [
+                GoRoute(
+                  path: 'article/:newsId',
+                  builder: (context, state) => ArticleDetailScreen(
+                    newsId: state.pathParameters['newsId'] ?? '',
+                  ),
+                ),
+              ],
             ),
           ]),
           StatefulShellBranch(routes: [

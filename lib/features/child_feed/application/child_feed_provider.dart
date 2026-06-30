@@ -33,7 +33,21 @@ class ChildFeedNotifier extends AsyncNotifier<List<PersonalizedFeedItem>> {
 
     if (raw.isEmpty) return _sampleFeed;
 
-    // Step 2: パーソナライズ済みデータをオーバーレイ（任意）
+    // Step 2: 閲覧済みフラグを Firestore から反映する。
+    // fetchFeed は news_pool から生成するため isViewed が常に false になる。
+    // personalized_feed の is_viewed で上書きすることで既読状態を復元する。
+    try {
+      final viewedIds = await _repo!.fetchViewedNewsIds(_userId!);
+      if (viewedIds.isNotEmpty) {
+        raw = raw
+            .map((item) => viewedIds.contains(item.newsId)
+                ? item.copyWith(isViewed: true)
+                : item)
+            .toList();
+      }
+    } catch (_) {}
+
+    // Step 4: パーソナライズ済みデータをオーバーレイ（任意）
     // personalized_feed のタイトル・タグライン・生成サムネを上書きし、
     // 記事の順序・件数は常に news_pool のものを使う。
     try {
@@ -60,7 +74,7 @@ class ChildFeedNotifier extends AsyncNotifier<List<PersonalizedFeedItem>> {
       }
     } catch (_) {}
 
-    // Step 3: バックグラウンドでパーソナライズを更新（UIをブロックしない）
+    // Step 5: バックグラウンドでパーソナライズを更新（UIをブロックしない）
     _schedulePersonalization();
 
     return raw;
@@ -116,19 +130,18 @@ class ChildFeedNotifier extends AsyncNotifier<List<PersonalizedFeedItem>> {
     });
   }
 
-  /// Telemetry Agent: 記事の閲覧秒数を記録する。
+  /// Telemetry Agent: 記事の閲覧秒数を記録する（is_viewed は変更しない）。
   ///
-  /// ローカル状態を楽観的に更新したうえで Firestore に反映し、
-  /// 3秒以上の閲覧なら興味検知 AI の自己学習ループも起動する。
+  /// ローカル状態（viewDurationSeconds）を楽観的に更新したうえで Firestore に反映し、
+  /// 興味検知 AI の自己学習ループも起動する。
+  /// 既読フラグは markAsViewed が担う。
   Future<void> recordView(String newsId, int durationSeconds) async {
     final current = state.valueOrNull;
-    // ローカル状態を楽観的更新
     if (current != null) {
       state = AsyncData([
         for (final item in current)
           if (item.newsId == newsId)
             item.copyWith(
-              isViewed: true,
               viewDurationSeconds: item.viewDurationSeconds + durationSeconds,
             )
           else
@@ -144,15 +157,31 @@ class ChildFeedNotifier extends AsyncNotifier<List<PersonalizedFeedItem>> {
       await repo.recordView(userId, newsId, durationSeconds);
 
       // DISA: スコア計算は Cloud Function に委譲（fire-and-forget）。
-      // 閾値チェック（t_norm < 0.2 = 9秒未満）は Cloud Function 側で行うため、
-      // Flutter 側では全閲覧を送信し、bounce 判定は DISA の calcEngagementValue に任せる。
       _ai?.updateInterestModel(
         newsId: newsId,
         viewDurationSeconds: durationSeconds,
       );
-    } catch (_) {
-      // オフライン等は無視（ローカル状態は更新済み）
+    } catch (_) {}
+  }
+
+  /// 記事詳細を開いたときに既読フラグを立てる。
+  ///
+  /// ローカル状態を即座に更新し（楽観的）、Firestore にも非同期で反映する。
+  Future<void> markAsViewed(String newsId) async {
+    final current = state.valueOrNull;
+    if (current != null && current.any((i) => i.newsId == newsId)) {
+      state = AsyncData([
+        for (final item in current)
+          if (item.newsId == newsId) item.copyWith(isViewed: true) else item,
+      ]);
     }
+
+    if (!ref.read(firebaseReadyProvider)) return;
+
+    try {
+      final userId = ref.read(currentUserIdProvider);
+      await ref.read(feedRepositoryProvider).markAsViewed(userId, newsId);
+    } catch (_) {}
   }
 }
 

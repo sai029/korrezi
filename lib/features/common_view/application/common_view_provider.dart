@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/firebase/firebase_providers.dart';
 import '../../../shared/models/news_pool.dart';
+import '../../child_feed/application/child_feed_provider.dart';
 import '../data/news_repository.dart';
 
 /// Common View で読む記事一覧（左ナビゲーショングリッドのもと）。
@@ -26,8 +27,11 @@ final commonViewProvider =
   CommonViewNotifier.new,
 );
 
-/// 右ペインで表示中の記事インデックス。
-final selectedArticleIndexProvider = StateProvider<int>((ref) => 0);
+/// 子どもが閲覧済みの newsId 集合。childFeedProvider から derived。
+final viewedNewsIdsProvider = Provider<Set<String>>((ref) {
+  final feed = ref.watch(childFeedProvider).valueOrNull ?? [];
+  return {for (final item in feed) if (item.isViewed) item.newsId};
+});
 
 // ----- 開発用サンプルデータ -----
 final _sample = [

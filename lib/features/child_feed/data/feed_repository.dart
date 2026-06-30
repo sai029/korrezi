@@ -85,9 +85,10 @@ class FeedRepository {
     return items;
   }
 
-  /// Telemetry Agent: 記事の閲覧秒数と閲覧済みフラグを記録する。
+  /// Telemetry Agent: 記事の閲覧秒数を記録する（既読フラグは変更しない）。
   ///
   /// view_duration_seconds は累積（インクリメント）で更新する。
+  /// is_viewed の書き込みは markAsViewed が担う。
   Future<void> recordView(
     String userId,
     String newsId,
@@ -95,8 +96,49 @@ class FeedRepository {
   ) async {
     await _feedRef(userId).doc(newsId).set(
       {
-        'is_viewed': true,
         'view_duration_seconds': FieldValue.increment(durationSeconds),
+      },
+      SetOptions(merge: true),
+    );
+  }
+
+  /// 記事詳細を開いたときに既読フラグを立てる。
+  Future<void> markAsViewed(String userId, String newsId) async {
+    await _feedRef(userId).doc(newsId).set(
+      {'is_viewed': true},
+      SetOptions(merge: true),
+    );
+  }
+
+  CollectionReference<Map<String, dynamic>> _favoritesRef(String userId) =>
+      _db.collection('users').doc(userId).collection('favorites');
+
+  /// 閲覧済み記事の newsId 集合を Firestore から取得する。
+  Future<Set<String>> fetchViewedNewsIds(String userId) async {
+    final snap = await _feedRef(userId)
+        .where('is_viewed', isEqualTo: true)
+        .get();
+    return snap.docs.map((d) => d.id).toSet();
+  }
+
+  /// お気に入り記事の newsId 集合を取得する。
+  Future<Set<String>> fetchFavoriteNewsIds(String userId) async {
+    final snap = await _favoritesRef(userId)
+        .where('is_favorite', isEqualTo: true)
+        .get();
+    return snap.docs.map((d) => d.id).toSet();
+  }
+
+  /// お気に入り状態を Firestore に保存する。
+  Future<void> toggleFavorite(
+    String userId,
+    String newsId,
+    bool isFavorite,
+  ) async {
+    await _favoritesRef(userId).doc(newsId).set(
+      {
+        'is_favorite': isFavorite,
+        'favorited_at': FieldValue.serverTimestamp(),
       },
       SetOptions(merge: true),
     );

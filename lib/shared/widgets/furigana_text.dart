@@ -5,10 +5,12 @@ import 'package:flutter/material.dart';
 /// 〔漢字｜よみ〕 形式を解析し、漢字の上にふりがなを重ねる。
 /// 例: `〔世界｜せかい〕の〔環境｜かんきょう〕を守るルール`
 class FuriganaText extends StatelessWidget {
-  const FuriganaText(this.raw, {super.key, this.style});
+  const FuriganaText(this.raw, {super.key, this.style, this.maxLines, this.overflow});
 
   final String raw;
   final TextStyle? style;
+  final int? maxLines;
+  final TextOverflow? overflow;
 
   static final _rubyPattern = RegExp(r'〔([^｜]+)｜([^〕]+)〕');
 
@@ -58,7 +60,11 @@ class FuriganaText extends StatelessWidget {
       spans.add(TextSpan(text: raw.substring(cursor)));
     }
 
-    return RichText(text: TextSpan(style: base, children: spans));
+    return RichText(
+      maxLines: maxLines,
+      overflow: overflow ?? TextOverflow.clip,
+      text: TextSpan(style: base, children: spans),
+    );
   }
 }
 
@@ -87,18 +93,27 @@ class _Ruby extends StatelessWidget {
     // = fontSize + (lineHeight - fontSize) / 2  =  size * (h + 1) / 2
     final rubyBottom = size * (h + 1) / 2;
 
-    return Stack(
-      clipBehavior: Clip.none,
-      alignment: Alignment.bottomCenter,
-      children: [
-        // base text がスタックサイズを決定（周囲テキストと同じ行高さ）。
-        Text(base, style: baseStyle),
-        // ルビはグリフの上にはみ出す。
-        Positioned(
-          bottom: rubyBottom,
-          child: Text(reading, style: rubyStyle),
-        ),
-      ],
+    // ルビは Stack の外にはみ出すためレイアウト上の高さに計上されない。
+    // PlaceholderAlignment.middle は widget 中心を EM box 中心に合わせるため、
+    // 上下対称の Padding を加えれば中心位置が変わらず本文が下にずれない。
+    // 上下それぞれ (rubyFontSize + gap) / 2 だけ広げる。
+    final halfPad = (size * 0.5 + 4) / 2;
+
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: halfPad),
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.bottomCenter,
+        children: [
+          // base text がスタックサイズを決定（周囲テキストと同じ行高さ）。
+          Text(base, style: baseStyle),
+          // ルビはグリフの上にはみ出す。
+          Positioned(
+            bottom: rubyBottom,
+            child: Text(reading, style: rubyStyle),
+          ),
+        ],
+      ),
     );
   }
 }

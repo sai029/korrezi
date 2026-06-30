@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../shared/widgets/bouncy_tap.dart';
 import '../../../shared/widgets/dev_menu_button.dart';
-import '../../common_view/application/common_view_provider.dart';
 import '../application/parent_dashboard_provider.dart';
 
 /// Parent Mode (スマホ・縦) — 会話のきっかけダッシュボード。
@@ -380,10 +379,7 @@ class _ArticleCard extends ConsumerWidget {
     );
   }
 
-  /// 子どもが実際に読むルビ付きリーダー（Common View）を、この記事を選択した
-  /// 状態で開く。子フィードの「よんでみる」と同じ遷移。
   void _openChildArticle(BuildContext context, WidgetRef ref) {
-    ref.read(selectedArticleIndexProvider.notifier).state = item.feedIndex;
-    context.go('/common');
+    context.go('/common/article/${item.newsId}');
   }
 }

@@ -1,26 +1,38 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/tokens.dart';
 import '../../../shared/models/news_pool.dart';
 import '../../../shared/widgets/dev_menu_button.dart';
+import '../../../shared/widgets/feed_thumbnail.dart';
 import '../../../shared/widgets/furigana_text.dart';
 import '../application/common_view_provider.dart';
+import '../application/favorites_provider.dart';
 
-/// Common Mode (タブレット・横) — 親子同時閲覧用の2カラム分割ビュー。
-///
-/// 横幅が十分なとき: 左=ナビゲーショングリッド / 右=記事リーダー(ルビ付き) の2カラム。
-/// 横幅が狭いとき: 1カラムにフォールバック（リスト→選択で下に記事）。
-class CommonViewScreen extends ConsumerWidget {
+class CommonViewScreen extends ConsumerStatefulWidget {
   const CommonViewScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<CommonViewScreen> createState() => _CommonViewScreenState();
+}
+
+class _CommonViewScreenState extends ConsumerState<CommonViewScreen> {
+  String? _selectedGenre;
+
+  List<NewsPool> _filtered(List<NewsPool> all) {
+    if (_selectedGenre == null) return all;
+    return all.where((a) => a.interestContext == _selectedGenre).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final async = ref.watch(commonViewProvider);
 
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('いっしょに よむ'),
+        title: const Text('ニュース'),
         actions: const [DevMenuButton()],
       ),
       body: async.when(
@@ -30,39 +42,36 @@ class CommonViewScreen extends ConsumerWidget {
           if (articles.isEmpty) {
             return const Center(child: Text('まだ記事がありません'));
           }
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              final isWide = constraints.maxWidth >= 720;
-              final selected = ref
-                  .watch(selectedArticleIndexProvider)
-                  .clamp(0, articles.length - 1);
+          final genres = articles
+              .map((a) => a.interestContext)
+              .where((g) => g.isNotEmpty)
+              .toSet()
+              .toList()
+            ..sort();
+          final filtered = _filtered(articles);
 
-              final nav = _NavigationGrid(
-                articles: articles,
-                selectedIndex: selected,
-                onSelect: (i) =>
-                    ref.read(selectedArticleIndexProvider.notifier).state = i,
-              );
-              final reader = _ArticleReader(article: articles[selected]);
-
-              if (isWide) {
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SizedBox(width: 280, child: nav),
-                    const VerticalDivider(width: 1),
-                    Expanded(child: reader),
-                  ],
-                );
-              }
-              return Column(
-                children: [
-                  SizedBox(height: 160, child: nav),
-                  const Divider(height: 1),
-                  Expanded(child: reader),
-                ],
-              );
-            },
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _GenreBar(
+                genres: genres,
+                selected: _selectedGenre,
+                onSelect: (g) => setState(() => _selectedGenre = g),
+              ),
+              Expanded(
+                child: filtered.isEmpty
+                    ? const Center(child: Text('この条件の記事はありません'))
+                    : SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.space3,
+                          AppSpacing.space3,
+                          AppSpacing.space3,
+                          AppSpacing.space8,
+                        ),
+                        child: _NewspaperGrid(articles: filtered),
+                      ),
+              ),
+            ],
           );
         },
       ),
@@ -70,104 +79,457 @@ class CommonViewScreen extends ConsumerWidget {
   }
 }
 
-/// 左ペイン: 記事を選ぶ動的ナビゲーショングリッド。
-/// グリッドカード: radiusLg / 選択時背景 accent / elev1。
-class _NavigationGrid extends StatelessWidget {
-  const _NavigationGrid({
-    required this.articles,
-    required this.selectedIndex,
+// ── Genre filter bar ──────────────────────────────────────────────────────────
+
+class _GenreBar extends StatelessWidget {
+  const _GenreBar({
+    required this.genres,
+    required this.selected,
     required this.onSelect,
   });
 
-  final List<NewsPool> articles;
-  final int selectedIndex;
-  final ValueChanged<int> onSelect;
+  final List<String> genres;
+  final String? selected;
+  final void Function(String?) onSelect;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final accent = scheme.secondary;
-
-    return GridView.builder(
-      padding: const EdgeInsets.all(AppSpacing.space3),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 200,
-        childAspectRatio: 1.4,
-        crossAxisSpacing: AppSpacing.space3,
-        mainAxisSpacing: AppSpacing.space3,
+    return ColoredBox(
+      color: AppColors.background,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.space3,
+          vertical: AppSpacing.space2,
+        ),
+        child: Row(
+          children: [
+            _GenreChip(
+              label: 'おすすめ',
+              selected: selected == null,
+              color: AppColors.brandPrimary,
+              onTap: () => onSelect(null),
+            ),
+            const SizedBox(width: AppSpacing.space2),
+            ...genres.map(
+              (g) => Padding(
+                padding: const EdgeInsets.only(right: AppSpacing.space2),
+                child: _GenreChip(
+                  label: g,
+                  selected: selected == g,
+                  color: AppColors.accentForGenre(g),
+                  onTap: () => onSelect(selected == g ? null : g),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
-      itemCount: articles.length,
-      itemBuilder: (context, i) {
-        final selected = i == selectedIndex;
-        return GestureDetector(
-          onTap: () => onSelect(i),
-          child: AnimatedContainer(
-            duration: AppMotion.durBase,
-            curve: AppMotion.curveStandard,
-            decoration: BoxDecoration(
-              color: selected
-                  ? accent.withValues(alpha: 0.2)
-                  : AppColors.surface,
-              borderRadius: AppRadii.lg,
-              border: selected
-                  ? Border.all(color: accent, width: 2)
-                  : Border.all(color: AppColors.ink300),
-              boxShadow: AppElevation.elev1(),
-            ),
-            padding: const EdgeInsets.all(AppSpacing.space3),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Icon(
-                  Icons.article_outlined,
-                  color: selected ? accent : AppColors.ink500,
-                ),
-                Text(
-                  articles[i].originalTitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-              ],
-            ),
-          ),
-        );
-      },
     );
   }
 }
 
-/// 右ペイン: ルビ(Furigana)付きの記事リーダー。
-/// calm content 原則: 背景 surface / padding space6 / 行間 1.8 / 見出し Rounded・本文 Noto。
-class _ArticleReader extends StatelessWidget {
-  const _ArticleReader({required this.article});
-  final NewsPool article;
+class _GenreChip extends StatelessWidget {
+  const _GenreChip({
+    required this.label,
+    required this.selected,
+    required this.color,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final Color color;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    return ColoredBox(
-      color: AppColors.surface,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppSpacing.space6),
-        child: Column(
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: AppMotion.durFast,
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.space3,
+          vertical: AppSpacing.space1,
+        ),
+        decoration: BoxDecoration(
+          color: selected ? color : Colors.transparent,
+          borderRadius: AppRadii.pill,
+          border: Border.all(
+            color: selected ? color : AppColors.ink300,
+            width: AppBorder.thin,
+          ),
+        ),
+        child: Text(
+          label,
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: selected ? AppColors.brandPrimaryInk : AppColors.ink700,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+              ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Newspaper grid ────────────────────────────────────────────────────────────
+
+class _NewspaperGrid extends ConsumerWidget {
+  const _NewspaperGrid({required this.articles});
+  final List<NewsPool> articles;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final viewedIds = ref.watch(viewedNewsIdsProvider);
+    final favoriteIds = ref.watch(favoritesProvider).valueOrNull ?? {};
+
+    Widget card(NewsPool a) {
+      final isViewed = viewedIds.contains(a.newsId);
+      final isFavorited = favoriteIds.contains(a.newsId);
+      return _ArticleCard(
+        article: a,
+        isViewed: isViewed,
+        isFavorited: isFavorited,
+        onToggleFavorite: () =>
+            ref.read(favoritesProvider.notifier).toggle(a.newsId),
+      );
+    }
+
+    final rows = <Widget>[];
+    int i = 0;
+
+    // Hero: full-width feature article
+    if (i < articles.length) {
+      final a = articles[i];
+      rows.add(_HeroCard(
+        article: a,
+        isViewed: viewedIds.contains(a.newsId),
+        isFavorited: favoriteIds.contains(a.newsId),
+        onToggleFavorite: () =>
+            ref.read(favoritesProvider.notifier).toggle(a.newsId),
+      ));
+      i++;
+    }
+
+    // Unequal pair: wide left (3) + narrow right (2)
+    if (i < articles.length) {
+      rows.add(const SizedBox(height: AppSpacing.space2));
+      if (i + 1 < articles.length) {
+        rows.add(Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // タイトル: ルビ対応。child_title_with_ruby があればルビ付き表示。
-            FuriganaText(
-              article.childTitleWithRuby.isEmpty
-                  ? article.originalTitle
-                  : article.childTitleWithRuby,
-              style: textTheme.headlineMedium,
-            ),
-            const SizedBox(height: AppSpacing.space5),
-            // 本文: Noto Sans JP + 行間 1.8 を明示（calm content 厳守）
-            FuriganaText(
-              article.childBodyWithRuby,
-              style: textTheme.bodyLarge?.copyWith(height: 1.8),
-            ),
+            Expanded(flex: 3, child: card(articles[i])),
+            const SizedBox(width: AppSpacing.space2),
+            Expanded(flex: 2, child: card(articles[i + 1])),
           ],
+        ));
+        i += 2;
+      } else {
+        rows.add(card(articles[i]));
+        i++;
+      }
+    }
+
+    // Remaining: 2-column equal grid
+    while (i < articles.length) {
+      rows.add(const SizedBox(height: AppSpacing.space2));
+      if (i + 1 < articles.length) {
+        rows.add(Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: card(articles[i])),
+            const SizedBox(width: AppSpacing.space2),
+            Expanded(child: card(articles[i + 1])),
+          ],
+        ));
+        i += 2;
+      } else {
+        rows.add(Row(
+          children: [
+            Expanded(child: card(articles[i])),
+            const SizedBox(width: AppSpacing.space2),
+            const Expanded(child: SizedBox()),
+          ],
+        ));
+        i++;
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: rows,
+    );
+  }
+}
+
+// ── Cards ─────────────────────────────────────────────────────────────────────
+
+class _HeroCard extends StatelessWidget {
+  const _HeroCard({
+    required this.article,
+    required this.isViewed,
+    required this.isFavorited,
+    required this.onToggleFavorite,
+  });
+
+  final NewsPool article;
+  final bool isViewed;
+  final bool isFavorited;
+  final VoidCallback onToggleFavorite;
+
+  @override
+  Widget build(BuildContext context) {
+    final accentColor = AppColors.accentForGenre(article.interestContext);
+    final title = article.childTitleWithRuby.isNotEmpty
+        ? article.childTitleWithRuby
+        : article.originalTitle;
+
+    return GestureDetector(
+      onTap: () => context.go('/common/article/${article.newsId}'),
+      child: ClipRRect(
+        borderRadius: AppRadii.lg,
+        child: AspectRatio(
+          aspectRatio: 16 / 9,
+          child: FeedThumbnail(
+            config: article.thumbnailConfig,
+            fallbackIcon: Icons.article_outlined,
+            overlay: Stack(
+              fit: StackFit.expand,
+              children: [
+                const DecoratedBox(
+                  decoration:
+                      BoxDecoration(gradient: AppGradients.feedOverlay),
+                ),
+                // 本文エリア（下部）
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: Padding(
+                    padding: const EdgeInsets.all(AppSpacing.space4),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.space2,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: accentColor,
+                            borderRadius: AppRadii.sm,
+                          ),
+                          child: Text(
+                            article.interestContext,
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelSmall
+                                ?.copyWith(
+                                  color: AppColors.brandPrimaryInk,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.space2),
+                        FuriganaText(
+                          title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(
+                                color: AppColors.brandPrimaryInk,
+                                fontWeight: FontWeight.w800,
+                                height: 1.2,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                // バッジ（右上）
+                Positioned(
+                  top: AppSpacing.space2,
+                  right: AppSpacing.space2,
+                  child: _ArticleBadges(
+                    isViewed: isViewed,
+                    isFavorited: isFavorited,
+                    onToggleFavorite: onToggleFavorite,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ArticleCard extends StatelessWidget {
+  const _ArticleCard({
+    required this.article,
+    required this.isViewed,
+    required this.isFavorited,
+    required this.onToggleFavorite,
+  });
+
+  final NewsPool article;
+  final bool isViewed;
+  final bool isFavorited;
+  final VoidCallback onToggleFavorite;
+
+  @override
+  Widget build(BuildContext context) {
+    final accentColor = AppColors.accentForGenre(article.interestContext);
+    final title = article.childTitleWithRuby.isNotEmpty
+        ? article.childTitleWithRuby
+        : article.originalTitle;
+
+    return GestureDetector(
+      onTap: () => context.go('/common/article/${article.newsId}'),
+      child: Stack(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: AppRadii.lg,
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(height: 4, color: accentColor),
+                AspectRatio(
+                  aspectRatio: 4 / 3,
+                  child: FeedThumbnail(
+                    config: article.thumbnailConfig,
+                    fallbackIcon: Icons.article_outlined,
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(AppSpacing.space3),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        article.interestContext,
+                        style:
+                            Theme.of(context).textTheme.labelSmall?.copyWith(
+                                  color: accentColor,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                      ),
+                      const SizedBox(height: 4),
+                      FuriganaText(
+                        title,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            Theme.of(context).textTheme.titleSmall?.copyWith(
+                                  color: AppColors.ink900,
+                                  fontWeight: FontWeight.w700,
+                                  height: 1.3,
+                                ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // バッジ（右上、Clip.antiAlias の外側の Stack に配置）
+          Positioned(
+            top: AppSpacing.space2,
+            right: AppSpacing.space2,
+            child: _ArticleBadges(
+              isViewed: isViewed,
+              isFavorited: isFavorited,
+              onToggleFavorite: onToggleFavorite,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── バッジ ─────────────────────────────────────────────────────────────────────
+
+class _ArticleBadges extends StatelessWidget {
+  const _ArticleBadges({
+    required this.isViewed,
+    required this.isFavorited,
+    required this.onToggleFavorite,
+  });
+
+  final bool isViewed;
+  final bool isFavorited;
+  final VoidCallback onToggleFavorite;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (isViewed) ...[
+          const _ReadStamp(),
+          const SizedBox(width: AppSpacing.space1),
+        ],
+        GestureDetector(
+          onTap: onToggleFavorite,
+          behavior: HitTestBehavior.opaque,
+          child: AnimatedContainer(
+            duration: AppMotion.durFast,
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: isFavorited
+                  ? AppColors.brandPrimary
+                  : AppColors.surface.withValues(alpha: 0.9),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              isFavorited ? Icons.favorite : Icons.favorite_border,
+              size: 14,
+              color: isFavorited ? AppColors.brandPrimaryInk : AppColors.ink500,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReadStamp extends StatelessWidget {
+  const _ReadStamp();
+
+  @override
+  Widget build(BuildContext context) {
+    return Transform.rotate(
+      angle: -0.08,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.space2,
+          vertical: 2,
+        ),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: AppRadii.sm,
+          border: Border.all(
+            color: AppColors.brandPrimary,
+            width: AppBorder.base,
+          ),
+        ),
+        child: Text(
+          'よんだ',
+          style: TextStyle(
+            fontSize: 9,
+            color: AppColors.brandPrimary,
+            fontWeight: FontWeight.w900,
+            height: 1.2,
+          ),
         ),
       ),
     );
