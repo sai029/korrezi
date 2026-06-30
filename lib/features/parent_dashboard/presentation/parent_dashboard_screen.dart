@@ -3,8 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/tokens.dart';
-import '../../../shared/widgets/app_drawer.dart';
 import '../../../shared/widgets/bouncy_tap.dart';
+import '../../../shared/widgets/dev_menu_button.dart';
 import '../../common_view/application/common_view_provider.dart';
 import '../application/parent_dashboard_provider.dart';
 
@@ -25,8 +25,10 @@ class ParentDashboardScreen extends ConsumerWidget {
     final async = ref.watch(parentDashboardProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('きょうの ようす')),
-      drawer: const AppDrawer(),
+      appBar: AppBar(
+        title: const Text('きょうの ようす'),
+        actions: const [DevMenuButton()],
+      ),
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('読み込みに失敗しました: $e')),

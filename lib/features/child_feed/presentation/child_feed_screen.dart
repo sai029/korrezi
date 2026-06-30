@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/tokens.dart';
 import '../../../shared/models/personalized_feed_item.dart';
-import '../../../shared/widgets/app_drawer.dart';
 import '../../../shared/widgets/bouncy_tap.dart';
 import '../../../shared/widgets/feed_thumbnail.dart';
 import '../../../shared/widgets/furigana_text.dart';
@@ -69,45 +68,31 @@ class _ChildFeedScreenState extends ConsumerState<ChildFeedScreen> {
 
     return Scaffold(
       backgroundColor: Colors.black,
-      drawer: const AppDrawer(),
-      body: Stack(
-        children: [
-          feedAsync.when(
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(
-              child: Text('読み込みに失敗しました: $e',
-                  style: const TextStyle(color: Colors.white)),
-            ),
-            data: (feed) {
-              if (feed.isEmpty) {
-                return const Center(
-                  child: Text('まだ記事がありません',
-                      style: TextStyle(color: Colors.white)),
-                );
-              }
-              _currentNewsId ??= feed.first.newsId;
+      body: feedAsync.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => Center(
+          child: Text('読み込みに失敗しました: $e',
+              style: const TextStyle(color: Colors.white)),
+        ),
+        data: (feed) {
+          if (feed.isEmpty) {
+            return const Center(
+              child: Text('まだ記事がありません',
+                  style: TextStyle(color: Colors.white)),
+            );
+          }
+          _currentNewsId ??= feed.first.newsId;
 
-              return PageView.builder(
-                controller: _controller,
-                scrollDirection: Axis.vertical,
-                physics: const _FastPageScrollPhysics(),
-                itemCount: feed.length,
-                onPageChanged: (index) => _onPageChanged(feed, index),
-                itemBuilder: (context, index) =>
-                    _FeedPage(item: feed[index], index: index),
-              );
-            },
-          ),
-          // 没入感を保ちつつ、左上に控えめなメニューボタンを重ねる。
-          SafeArea(
-            child: Builder(
-              builder: (context) => IconButton(
-                icon: const Icon(Icons.menu, color: Colors.white),
-                onPressed: () => Scaffold.of(context).openDrawer(),
-              ),
-            ),
-          ),
-        ],
+          return PageView.builder(
+            controller: _controller,
+            scrollDirection: Axis.vertical,
+            physics: const _FastPageScrollPhysics(),
+            itemCount: feed.length,
+            onPageChanged: (index) => _onPageChanged(feed, index),
+            itemBuilder: (context, index) =>
+                _FeedPage(item: feed[index], index: index),
+          );
+        },
       ),
     );
   }

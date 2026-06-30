@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/tokens.dart';
 import '../../../shared/models/news_pool.dart';
-import '../../../shared/widgets/app_drawer.dart';
+import '../../../shared/widgets/dev_menu_button.dart';
 import '../../../shared/widgets/furigana_text.dart';
 import '../application/common_view_provider.dart';
 
@@ -19,8 +19,10 @@ class CommonViewScreen extends ConsumerWidget {
     final async = ref.watch(commonViewProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('いっしょに よむ')),
-      drawer: const AppDrawer(),
+      appBar: AppBar(
+        title: const Text('いっしょに よむ'),
+        actions: const [DevMenuButton()],
+      ),
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('読み込みに失敗しました: $e')),
