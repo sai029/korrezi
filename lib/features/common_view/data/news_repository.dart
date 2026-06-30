@@ -20,7 +20,11 @@ class NewsRepository {
         .orderBy('published_at', descending: true)
         .limit(limit)
         .get();
-    return snap.docs.map((d) => NewsPool.fromJson(d.data())).toList();
+    return snap.docs.map((d) {
+      final data = Map<String, dynamic>.from(d.data());
+      data['news_id'] = d.id;
+      return NewsPool.fromJson(data);
+    }).toList();
   }
 }
 

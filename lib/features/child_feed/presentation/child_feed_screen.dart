@@ -143,6 +143,16 @@ class _FeedPage extends ConsumerWidget {
   final PersonalizedFeedItem item;
   final int index;
 
+  void _openInCommon(BuildContext context, WidgetRef ref) {
+    // child の newsId で common 配列内の対応インデックスを探す。
+    // 見つからなければ先頭を表示（フォールバック）。
+    final commonArticles = ref.read(commonViewProvider).valueOrNull ?? [];
+    final idx = commonArticles.indexWhere((a) => a.newsId == item.newsId);
+    ref.read(selectedArticleIndexProvider.notifier).state =
+        idx >= 0 ? idx : 0;
+    context.go('/common');
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final textTheme = Theme.of(context).textTheme;
@@ -203,19 +213,9 @@ class _FeedPage extends ConsumerWidget {
                 Row(
                   children: [
                     BouncyTap(
-                      onTap: () {
-                        ref
-                            .read(selectedArticleIndexProvider.notifier)
-                            .state = index;
-                        context.go('/common');
-                      },
+                      onTap: () => _openInCommon(context, ref),
                       child: FilledButton.icon(
-                        onPressed: () {
-                          ref
-                              .read(selectedArticleIndexProvider.notifier)
-                              .state = index;
-                          context.go('/common');
-                        },
+                        onPressed: () => _openInCommon(context, ref),
                         icon: const Icon(Icons.menu_book),
                         label: const Text('よんでみる'),
                       ),

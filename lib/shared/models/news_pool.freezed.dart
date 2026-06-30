@@ -21,6 +21,9 @@ NewsPool _$NewsPoolFromJson(Map<String, dynamic> json) {
 
 /// @nodoc
 mixin _$NewsPool {
+  /// Firestore ドキュメント ID（`news_{sha1}`）。fromJson では手動で注入する。
+  @JsonKey(name: 'news_id')
+  String get newsId => throw _privateConstructorUsedError;
   @JsonKey(name: 'original_title')
   String get originalTitle => throw _privateConstructorUsedError;
   @TimestampConverter()
@@ -71,6 +74,7 @@ abstract class $NewsPoolCopyWith<$Res> {
       _$NewsPoolCopyWithImpl<$Res, NewsPool>;
   @useResult
   $Res call({
+    @JsonKey(name: 'news_id') String newsId,
     @JsonKey(name: 'original_title') String originalTitle,
     @TimestampConverter() @JsonKey(name: 'published_at') DateTime publishedAt,
     @JsonKey(name: 'parent_summary') String parentSummary,
@@ -100,6 +104,7 @@ class _$NewsPoolCopyWithImpl<$Res, $Val extends NewsPool>
   @pragma('vm:prefer-inline')
   @override
   $Res call({
+    Object? newsId = null,
     Object? originalTitle = null,
     Object? publishedAt = null,
     Object? parentSummary = null,
@@ -112,6 +117,10 @@ class _$NewsPoolCopyWithImpl<$Res, $Val extends NewsPool>
   }) {
     return _then(
       _value.copyWith(
+            newsId: null == newsId
+                ? _value.newsId
+                : newsId // ignore: cast_nullable_to_non_nullable
+                      as String,
             originalTitle: null == originalTitle
                 ? _value.originalTitle
                 : originalTitle // ignore: cast_nullable_to_non_nullable
@@ -174,6 +183,7 @@ abstract class _$$NewsPoolImplCopyWith<$Res>
   @override
   @useResult
   $Res call({
+    @JsonKey(name: 'news_id') String newsId,
     @JsonKey(name: 'original_title') String originalTitle,
     @TimestampConverter() @JsonKey(name: 'published_at') DateTime publishedAt,
     @JsonKey(name: 'parent_summary') String parentSummary,
@@ -203,6 +213,7 @@ class __$$NewsPoolImplCopyWithImpl<$Res>
   @pragma('vm:prefer-inline')
   @override
   $Res call({
+    Object? newsId = null,
     Object? originalTitle = null,
     Object? publishedAt = null,
     Object? parentSummary = null,
@@ -215,6 +226,10 @@ class __$$NewsPoolImplCopyWithImpl<$Res>
   }) {
     return _then(
       _$NewsPoolImpl(
+        newsId: null == newsId
+            ? _value.newsId
+            : newsId // ignore: cast_nullable_to_non_nullable
+                  as String,
         originalTitle: null == originalTitle
             ? _value.originalTitle
             : originalTitle // ignore: cast_nullable_to_non_nullable
@@ -260,6 +275,7 @@ class __$$NewsPoolImplCopyWithImpl<$Res>
 @JsonSerializable()
 class _$NewsPoolImpl implements _NewsPool {
   const _$NewsPoolImpl({
+    @JsonKey(name: 'news_id') this.newsId = '',
     @JsonKey(name: 'original_title') required this.originalTitle,
     @TimestampConverter()
     @JsonKey(name: 'published_at')
@@ -277,6 +293,10 @@ class _$NewsPoolImpl implements _NewsPool {
   factory _$NewsPoolImpl.fromJson(Map<String, dynamic> json) =>
       _$$NewsPoolImplFromJson(json);
 
+  /// Firestore ドキュメント ID（`news_{sha1}`）。fromJson では手動で注入する。
+  @override
+  @JsonKey(name: 'news_id')
+  final String newsId;
   @override
   @JsonKey(name: 'original_title')
   final String originalTitle;
@@ -322,7 +342,7 @@ class _$NewsPoolImpl implements _NewsPool {
 
   @override
   String toString() {
-    return 'NewsPool(originalTitle: $originalTitle, publishedAt: $publishedAt, parentSummary: $parentSummary, childBodyWithRuby: $childBodyWithRuby, displayTitle: $displayTitle, displayTagline: $displayTagline, interestContext: $interestContext, childTitleWithRuby: $childTitleWithRuby, thumbnailConfig: $thumbnailConfig)';
+    return 'NewsPool(newsId: $newsId, originalTitle: $originalTitle, publishedAt: $publishedAt, parentSummary: $parentSummary, childBodyWithRuby: $childBodyWithRuby, displayTitle: $displayTitle, displayTagline: $displayTagline, interestContext: $interestContext, childTitleWithRuby: $childTitleWithRuby, thumbnailConfig: $thumbnailConfig)';
   }
 
   @override
@@ -330,6 +350,7 @@ class _$NewsPoolImpl implements _NewsPool {
     return identical(this, other) ||
         (other.runtimeType == runtimeType &&
             other is _$NewsPoolImpl &&
+            (identical(other.newsId, newsId) || other.newsId == newsId) &&
             (identical(other.originalTitle, originalTitle) ||
                 other.originalTitle == originalTitle) &&
             (identical(other.publishedAt, publishedAt) ||
@@ -354,6 +375,7 @@ class _$NewsPoolImpl implements _NewsPool {
   @override
   int get hashCode => Object.hash(
     runtimeType,
+    newsId,
     originalTitle,
     publishedAt,
     parentSummary,
@@ -381,6 +403,7 @@ class _$NewsPoolImpl implements _NewsPool {
 
 abstract class _NewsPool implements NewsPool {
   const factory _NewsPool({
+    @JsonKey(name: 'news_id') final String newsId,
     @JsonKey(name: 'original_title') required final String originalTitle,
     @TimestampConverter()
     @JsonKey(name: 'published_at')
@@ -398,6 +421,10 @@ abstract class _NewsPool implements NewsPool {
   factory _NewsPool.fromJson(Map<String, dynamic> json) =
       _$NewsPoolImpl.fromJson;
 
+  /// Firestore ドキュメント ID（`news_{sha1}`）。fromJson では手動で注入する。
+  @override
+  @JsonKey(name: 'news_id')
+  String get newsId;
   @override
   @JsonKey(name: 'original_title')
   String get originalTitle;

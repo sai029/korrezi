@@ -13,6 +13,8 @@ part 'news_pool.g.dart';
 @freezed
 class NewsPool with _$NewsPool {
   const factory NewsPool({
+    /// Firestore ドキュメント ID（`news_{sha1}`）。fromJson では手動で注入する。
+    @JsonKey(name: 'news_id') @Default('') String newsId,
     @JsonKey(name: 'original_title') required String originalTitle,
     @TimestampConverter()
     @JsonKey(name: 'published_at')
