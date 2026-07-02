@@ -5,7 +5,7 @@ import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { setGlobalOptions } from "firebase-functions/v2";
 import { defineSecret } from "firebase-functions/params";
-import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
+import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { logger } from "firebase-functions";
 import { GoogleGenAI } from "@google/genai";
@@ -1340,92 +1340,4 @@ export const updateInterestModel = onCall(
       logger.warn("updateInterestModel: agent_notes update failed", { err: `${err}` });
     }
   }
-);
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// 【一時】カテゴリ別テンプレ画像の一括生成。12枚を Imagen で作り Storage へ保存する。
-// 使い方: デプロイ後に `?secret=...` 付きで1回叩き、返る URL 群を assets へ取り込む。
-// 取り込み・pubspec 登録が済んだらこの関数ごと削除する（本番に残さない）。
-// ═══════════════════════════════════════════════════════════════════════════════
-const TEMPLATE_GEN_SECRET = "59cd647d038ec49ec40871177ee59d7f";
-
-/** トピック別テンプレ画像の英語シーン記述（Imagen 用）。記事非依存の汎用イラスト。 */
-const TOPIC_TEMPLATE_PROMPT: Record<string, string> = {
-  "科学": "a single elegant conical flask with swirling liquid and rising particles, a molecular structure floating beside it",
-  "宇宙": "a lone astronaut silhouette drifting near a large planet and a distant rocket trail across the stars",
-  "テクノロジー": "a sleek circuit-board pattern flowing into a stylised human profile, glowing data nodes",
-  "自然・環境": "a bold mountain range and a single tall tree reflected in still water, one leaf falling",
-  "動物": "a striking wild animal in mid-motion, a running wolf or a leaping deer in profile",
-  "スポーツ": "a dynamic athlete silhouette mid-action, a footballer striking a ball with motion lines",
-  "食べ物": "an artfully plated dish seen from above, chopsticks and scattered ingredients composed like a magazine cover",
-  "音楽・アート": "a grand piano and headphones intertwined with flowing sound waves and a paint splash",
-  "経済・お金": "a rising line graph transforming into a city skyline, stacked coins in the foreground",
-  "国際・世界": "a stylised globe wrapped in flight paths connecting continents, a few iconic landmark silhouettes",
-  "文化・歴史": "an old castle silhouette meeting a modern city, an unrolled scroll in the foreground",
-  "社会・くらし": "an aerial view of a city intersection with stylised people and buildings, clean geometric lines",
-};
-
-/**
- * 【一時】12カテゴリのテンプレ画像を Imagen 3 で生成し Storage `templates/{slug}.jpg` へ保存。
- * 返り値は { トピック: ダウンロードURL }。取り込み後にこの関数は削除する。
- */
-export const genTemplates = onRequest(
-  { timeoutSeconds: 540, memory: "1GiB" },
-  async (req, res) => {
-    if (req.query.secret !== TEMPLATE_GEN_SECRET) {
-      res.status(403).send("forbidden");
-      return;
-    }
-    const project = process.env.GCLOUD_PROJECT ?? "";
-    const accessToken = await fetchAccessToken();
-    if (!accessToken) {
-      res.status(500).send("no access token");
-      return;
-    }
-    const style = THUMBNAIL_STYLE;
-    const endpoint = [
-      "https://us-central1-aiplatform.googleapis.com/v1",
-      `/projects/${project}/locations/us-central1`,
-      "/publishers/google/models/imagen-3.0-fast-generate-001:predict",
-    ].join("");
-    const bucket = getStorage().bucket();
-
-    const out: Record<string, string> = {};
-    for (const topic of TOPIC_CATEGORIES) {
-      const slug = TOPIC_TEMPLATE_ASSET[topic].split("/").pop()!.replace(".jpg", "");
-      try {
-        const imgRes = await fetch(endpoint, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            instances: [{ prompt: `${TOPIC_TEMPLATE_PROMPT[topic]}. ${style}` }],
-            parameters: { sampleCount: 1, aspectRatio: "16:9" },
-          }),
-        });
-        if (!imgRes.ok) throw new Error(`Imagen ${imgRes.status}: ${await imgRes.text()}`);
-        const imgData = (await imgRes.json()) as {
-          predictions: Array<{ bytesBase64Encoded: string }>;
-        };
-        const buffer = Buffer.from(imgData.predictions[0].bytesBase64Encoded, "base64");
-        const file = bucket.file(`templates/${slug}.jpg`);
-        const token = randomUUID();
-        await file.save(buffer, {
-          contentType: "image/jpeg",
-          metadata: {
-            cacheControl: "public, max-age=31536000",
-            metadata: { firebaseStorageDownloadTokens: token },
-          },
-        });
-        const encodedPath = encodeURIComponent(`templates/${slug}.jpg`);
-        out[topic] =
-          `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodedPath}?alt=media&token=${token}`;
-      } catch (err) {
-        out[topic] = `ERROR: ${err}`;
-      }
-    }
-    res.json(out);
-  },
 );
