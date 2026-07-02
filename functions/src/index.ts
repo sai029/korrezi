@@ -200,13 +200,21 @@ async function scoreArticle(a: GNewsArticle): Promise<QualityReview | null> {
     "  概要が短すぎて判定できない場合のみ 0 を返す。",
     "③ reliability（信頼性・客観性）: 1〜5。事実と意見が区別され、煽り表現が無く、",
     "  複数視点に触れているほど高い。過激・感情的な煽りは低い。",
-    "④ safety（安全面）: 残虐/性的/差別/自殺・自傷、または過度に恐怖を煽る描写が含まれるなら",
-    "  safe=false。該当する種類を safety_flags に日本語で列挙（無ければ空配列）。",
+    "④ safety（安全面）: すべての記事で必ず真偽値の safe を返すこと。残虐/性的/差別/",
+    "  自殺・自傷、または過度に恐怖を煽る描写が含まれるなら safe=false、含まれなければ",
+    "  safe=true。該当する種類を safety_flags に日本語で列挙（無ければ空配列）。",
     "⑤ topic（トピック分類）: 記事の主題に最も近いものを次のリストから必ず1つ選ぶ:",
     `  ${TOPIC_CATEGORIES.join(" / ")}`,
     `  どれにも当てはまらない場合は「${TOPIC_FALLBACK}」を選ぶ。リストにない語を作らない。`,
     "",
-    "reason には判定理由を日本語1文で簡潔に書く。",
+    "出力は必ず次の7キーを持つJSONだけにする（前後に説明文を付けない）:",
+    '- "educational_value": 1〜5 の整数',
+    '- "thinking_hook": 1〜5 の整数（概要が短すぎて判定できないときのみ 0）',
+    '- "reliability": 1〜5 の整数',
+    '- "safe": 真偽値。安全なら true、危険なら false（安全でも必ず含める）',
+    '- "safety_flags": 文字列配列。危険な種類を日本語で。無ければ []',
+    '- "topic": 上記トピックのいずれか1つ',
+    '- "reason": 判定理由の日本語1文',
     "",
     "記事:",
     articleSource(a),
@@ -224,7 +232,20 @@ async function scoreArticle(a: GNewsArticle): Promise<QualityReview | null> {
     const flagged = Array.isArray(parsed.safety_flags)
       ? parsed.safety_flags.filter((x): x is string => typeof x === "string")
       : [];
-    const passed = parsed.safe === true && flagged.length === 0;
+    // fail-closed のまま、モデルが safe を真偽値/文字列どちらで返しても明示 true のみ通す。
+    const safeExplicit = parsed.safe === true || parsed.safe === "true";
+    const passed = safeExplicit && flagged.length === 0;
+
+    // 除外時は理由を残す（safe_raw が null なら「safe キー欠落」= モデル出力の揺れ、
+    // flags 非空なら実際の安全 NG）。フィードが空になる原因の切り分け用。
+    if (!passed) {
+      logger.info("scoreArticle dropped on safety", {
+        url: a.url,
+        safe_raw: parsed.safe ?? null,
+        flags: flagged,
+        reason: typeof parsed.reason === "string" ? parsed.reason : "",
+      });
+    }
 
     // タクソノミー外の値（Gemini の造語）はフォールバックに寄せる
     const topic =
