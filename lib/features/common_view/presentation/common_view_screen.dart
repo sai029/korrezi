@@ -345,7 +345,7 @@ class _HeroCard extends StatelessWidget {
                                 height: 1.2,
                                 shadows: const [
                                   Shadow(
-                                    color: Color(0xB3000000),
+                                    color: AppColors.onImageShadow,
                                     blurRadius: 8,
                                     offset: Offset(0, 1),
                                   ),

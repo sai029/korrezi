@@ -191,7 +191,7 @@ class _FeedPage extends ConsumerWidget {
                     color: AppColors.brandPrimaryInk,
                     shadows: const [
                       Shadow(
-                        color: Color(0xB3000000),
+                        color: AppColors.onImageShadow,
                         blurRadius: 8,
                         offset: Offset(0, 1),
                       ),

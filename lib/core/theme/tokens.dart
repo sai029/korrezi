@@ -43,6 +43,9 @@ abstract final class AppColors {
   static const success = Color(0xFF258039);
   static const warning = Color(0xFFEDB83D);
   static const error   = Color(0xFFD70026);
+
+  /// 画像に重ねる白テキストの影（モノトーン/明るい生成画像でも輪郭を保つ）。
+  static const onImageShadow = Color(0xB3000000);
 }
 
 // ─── グラデーション ───────────────────────────────────────────────────────────
