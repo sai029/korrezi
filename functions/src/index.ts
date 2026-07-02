@@ -5,7 +5,7 @@ import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { setGlobalOptions } from "firebase-functions/v2";
 import { defineSecret } from "firebase-functions/params";
-import { HttpsError, onCall } from "firebase-functions/v2/https";
+import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { logger } from "firebase-functions";
 import { GoogleGenAI } from "@google/genai";
@@ -22,6 +22,28 @@ const GNEWS_API_KEY = defineSecret("GNEWS_API_KEY");
 // API キーは不要。モデルが広く利用可能な us-central1 を既定にする。
 const VERTEX_LOCATION = "us-central1";
 const GEMINI_MODEL = "gemini-2.5-flash";
+
+// サムネのアートスタイル（全生成で共通）。
+// ターゲットは中学受験を意識する中高学年（10〜12歳）。幼児向けの原色ポップ・
+// デフォルメ絵は「ダサい＝自分向けではない」と判断されるため避け、音楽 MV／
+// スタイリッシュなアニメ OP のようなエディトリアル線画＋限定アクセントカラーで
+// 「知的でクール・少し背伸び」した印象にする。Imagen は英語プロンプトの品質が
+// 高いため英語で指定する。scene 記述の後ろに常にこの1文を付けてスタイルを固定する。
+const THUMBNAIL_STYLE =
+  "Modern, stylish flat editorial illustration with a fresh, bright and airy mood. " +
+  "A light, clean background with a curated palette of two or three trendy accent colours " +
+  "(for example soft coral, teal, warm yellow or lavender) — colourful and upbeat but tasteful, " +
+  "never garish. Confident, elegant linework and simple geometric shapes with a light sense of " +
+  "motion; think a cool contemporary magazine spread or a sleek app illustration, NOT a dark " +
+  "music video. Sophisticated yet friendly and optimistic — aimed at smart pre-teens aged 10 to 12, " +
+  "never childish, and never gloomy, eerie or scary. Generous negative space. " +
+  "Keep the main subject in the upper two-thirds and leave the lower third calmer and " +
+  "less busy so an app can overlay a title there. " +
+  "Absolutely no text, no letters, no numbers, no words anywhere in the image. " +
+  "Avoid: dark / gloomy / eerie atmosphere, heavy black backgrounds, harsh noir shadows, " +
+  "loud saturated primary-color pop, thick uniform outlines, chibi or big-head cartoon mascots, " +
+  "googly eyes, wide open-mouthed smiles, rainbow gradients, clip-art, cutesy kawaii style, " +
+  "textbook or educational-clipart look. 16:9 aspect ratio.";
 
 // quality_review マップの構造バージョン。後で項目を変えたら上げる。
 // v2: topic（トピック分類）を追加し interest_context をソース名からトピックへ変更。
@@ -52,6 +74,33 @@ const TOPIC_CATEGORIES = [
 
 /** 分類できなかったときの受け皿トピック。 */
 const TOPIC_FALLBACK = "社会・くらし";
+
+/**
+ * トピック別テンプレ画像（アプリにバンドルする asset パス）。
+ *
+ * Imagen 生成画像が無い/失敗した記事でも「何の記事か分かる画像」を必ず表示するための
+ * 基本レイヤー。thumbnail_config.base_asset に入れ、FeedThumbnail が AssetImage で描画する。
+ * ファイルは Flutter 側 assets/thumbnails/templates/*.webp と pubspec への登録が必要。
+ */
+const TOPIC_TEMPLATE_ASSET: Record<string, string> = {
+  "科学": "assets/thumbnails/templates/science.jpg",
+  "宇宙": "assets/thumbnails/templates/space.jpg",
+  "テクノロジー": "assets/thumbnails/templates/technology.jpg",
+  "自然・環境": "assets/thumbnails/templates/nature.jpg",
+  "動物": "assets/thumbnails/templates/animal.jpg",
+  "スポーツ": "assets/thumbnails/templates/sports.jpg",
+  "食べ物": "assets/thumbnails/templates/food.jpg",
+  "音楽・アート": "assets/thumbnails/templates/art.jpg",
+  "経済・お金": "assets/thumbnails/templates/economy.jpg",
+  "国際・世界": "assets/thumbnails/templates/world.jpg",
+  "文化・歴史": "assets/thumbnails/templates/culture.jpg",
+  "社会・くらし": "assets/thumbnails/templates/society.jpg",
+};
+
+/** トピックに対応するテンプレ画像 asset パスを返す（未知トピックは受け皿へ）。 */
+function templateAssetForTopic(topic: string): string {
+  return TOPIC_TEMPLATE_ASSET[topic] ?? TOPIC_TEMPLATE_ASSET[TOPIC_FALLBACK];
+}
 
 /**
  * Imagen サムネ生成を実行する興味スコアの下限（コスト最適化）。
@@ -353,10 +402,31 @@ async function fetchGNewsArticles(): Promise<GNewsArticle[]> {
 }
 
 /**
- * 記事群を「採点ゲート → 合格分のみ子ども向け変換 → news_pool 書き込み」まで処理し、
- * 実際に書き込んだ件数を返す。fetchNews / refreshNewsPool の共通処理。
+ * メタデータサーバから Vertex/Storage 用のアクセストークンを取得する。
+ * Cloud Functions 実行環境でのみ有効。失敗時は空文字を返す（呼び出し側でフォールバック）。
+ */
+async function fetchAccessToken(): Promise<string> {
+  try {
+    const res = await fetch(
+      "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+      { headers: { "Metadata-Flavor": "Google" } },
+    );
+    const { access_token: token } = (await res.json()) as { access_token: string };
+    return token ?? "";
+  } catch (err) {
+    logger.warn("access token fetch failed", { err: `${err}` });
+    return "";
+  }
+}
+
+/**
+ * 記事群を「採点ゲート → 合格分のみ子ども向け変換 → サムネ生成 → news_pool 書き込み」まで
+ * 処理し、実際に書き込んだ件数を返す。fetchNews / refreshNewsPool の共通処理。
  *
  * ゲートは変換の前に置く（落とす記事に変換コストを払わない）。
+ * サムネは記事単位（全ユーザー共通）で1回だけ生成し news_pool に保存するため、
+ * Common / Child / 詳細すべての画面でそのまま表示される（personalizeArticles は
+ * 生成済み URL を検知して再生成をスキップする）。
  */
 async function ingestArticles(articles: GNewsArticle[]): Promise<number> {
   // 1. 採点（並列）。安全性を確認できない記事は null。
@@ -383,6 +453,33 @@ async function ingestArticles(articles: GNewsArticle[]): Promise<number> {
     survivors.map((x) => toChildFriendly(x.article)),
   );
 
+  // 3.5 サムネ生成（並列・全記事対象）。記事本文に合った画像を Imagen 3 で1記事1枚生成する。
+  // GNews の元画像は CORS でブロックされるため使わない。生成に失敗した記事は
+  // カテゴリ別テンプレ画像（base_asset）にフォールバックし「画像なし」状態を作らない。
+  const project = process.env.GCLOUD_PROJECT ?? "";
+  const accessToken = await fetchAccessToken();
+  const thumbUrls = await Promise.all(
+    survivors.map(async ({ article: a, review }, i) => {
+      if (!accessToken) return "";
+      try {
+        return await generateOneThumbnail(
+          newsIdFromUrl(a.url),
+          converted[i].displayTitle,
+          converted[i].displayTagline,
+          review.topic,
+          accessToken,
+          project,
+        );
+      } catch (err) {
+        logger.warn("ingest thumbnail generation failed; using template", {
+          url: a.url,
+          err: `${err}`,
+        });
+        return "";
+      }
+    }),
+  );
+
   // 4. WriteBatch で news_pool（合格）と rejected_articles（除外）へ書き込み。
   const db = getFirestore();
   const batch = db.batch();
@@ -391,9 +488,13 @@ async function ingestArticles(articles: GNewsArticle[]): Promise<number> {
     const id = newsIdFromUrl(a.url);
     const cf = converted[i];
 
-    // GNews の画像 URL は CORS でブロックされるため使わない。
-    // 常に text_overlay で保存し、personalizeArticles の Imagen 3 が後で生成する。
-    const thumbnailConfig = { mode: "text_overlay", base_asset: "", optional_generated_url: "" };
+    // 生成できた記事は generated（Imagen URL）、失敗時はトピック別テンプレ画像で表示する。
+    // base_asset は generated 時も保持し、ネットワーク画像が失敗したときの受け皿にする。
+    const generatedUrl = thumbUrls[i];
+    const template = templateAssetForTopic(review.topic);
+    const thumbnailConfig = generatedUrl
+      ? { mode: "generated", base_asset: template, optional_generated_url: generatedUrl }
+      : { mode: "text_overlay", base_asset: template, optional_generated_url: "" };
 
     batch.set(db.collection("news_pool").doc(id), {
       original_title: a.title,
@@ -947,28 +1048,36 @@ async function generateOneThumbnail(
   // Gemini で記事内容から Imagen 向け英語ビジュアルプロンプトを生成する。
   // Imagen 3 は英語プロンプトの方が品質が高く、日本語ソース名（"NHK ニュース" 等）を
   // そのままテーマに使うと記事と無関係な画像が生成されるため、Gemini が意味を補完する。
-  let promptText: string;
+  // Gemini には「何を描くか（被写体・シーン）」だけを英語で出させ、アートスタイルは
+  // THUMBNAIL_STYLE で決め打ちして付与する。こうするとモデルのブレに関係なく
+  // 全記事で一貫した「知的でクール」なトーンになる。
+  let sceneText: string;
   try {
     const pResult = await getGenAI().models.generateContent({
       model: GEMINI_MODEL,
       contents: [{
         role: "user",
         parts: [{ text: [
-          "Write a short English prompt for an AI image generator to create a children's news thumbnail.",
+          "You are an art director for a stylish news app aimed at smart Japanese pre-teens",
+          "(ages 10-12) who are preparing for junior-high entrance exams.",
+          "Describe ONE specific, visually striking scene or a single symbolic object that",
+          "best represents the news article below.",
+          `Article category: ${category}`,
           `Article title: ${title}`,
           `Article summary: ${tagline}`,
-          "Rules: describe ONE specific scene that represents the article visually.",
-          "Style must be: bright colorful cartoon illustration for kids aged 6-10, cheerful, no text, no letters, no words in the image.",
-          "Output only the image prompt (max 60 words). No explanation, no quotes.",
+          "Rules: describe only the concrete visual subject (people, objects, setting, action).",
+          "Do NOT mention any art style, colour, medium, or the words 'child'/'kids'.",
+          "Output only the scene description in English (max 40 words). No explanation, no quotes.",
         ].join("\n") }],
       }],
       config: { temperature: 0.8 },
     });
-    promptText = (pResult.text ?? "").trim();
-    if (!promptText) throw new Error("empty");
+    sceneText = (pResult.text ?? "").trim();
+    if (!sceneText) throw new Error("empty");
   } catch {
-    promptText = `Children's news illustration about: ${title}. ${tagline}. Bright colorful cartoon art for kids, no text, 16:9.`;
+    sceneText = `A single symbolic scene that represents this news: ${title}. ${tagline}.`;
   }
+  const promptText = `${sceneText} ${THUMBNAIL_STYLE}`;
 
   const endpoint = [
     "https://us-central1-aiplatform.googleapis.com/v1",
@@ -1231,4 +1340,92 @@ export const updateInterestModel = onCall(
       logger.warn("updateInterestModel: agent_notes update failed", { err: `${err}` });
     }
   }
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 【一時】カテゴリ別テンプレ画像の一括生成。12枚を Imagen で作り Storage へ保存する。
+// 使い方: デプロイ後に `?secret=...` 付きで1回叩き、返る URL 群を assets へ取り込む。
+// 取り込み・pubspec 登録が済んだらこの関数ごと削除する（本番に残さない）。
+// ═══════════════════════════════════════════════════════════════════════════════
+const TEMPLATE_GEN_SECRET = "59cd647d038ec49ec40871177ee59d7f";
+
+/** トピック別テンプレ画像の英語シーン記述（Imagen 用）。記事非依存の汎用イラスト。 */
+const TOPIC_TEMPLATE_PROMPT: Record<string, string> = {
+  "科学": "a single elegant conical flask with swirling liquid and rising particles, a molecular structure floating beside it",
+  "宇宙": "a lone astronaut silhouette drifting near a large planet and a distant rocket trail across the stars",
+  "テクノロジー": "a sleek circuit-board pattern flowing into a stylised human profile, glowing data nodes",
+  "自然・環境": "a bold mountain range and a single tall tree reflected in still water, one leaf falling",
+  "動物": "a striking wild animal in mid-motion, a running wolf or a leaping deer in profile",
+  "スポーツ": "a dynamic athlete silhouette mid-action, a footballer striking a ball with motion lines",
+  "食べ物": "an artfully plated dish seen from above, chopsticks and scattered ingredients composed like a magazine cover",
+  "音楽・アート": "a grand piano and headphones intertwined with flowing sound waves and a paint splash",
+  "経済・お金": "a rising line graph transforming into a city skyline, stacked coins in the foreground",
+  "国際・世界": "a stylised globe wrapped in flight paths connecting continents, a few iconic landmark silhouettes",
+  "文化・歴史": "an old castle silhouette meeting a modern city, an unrolled scroll in the foreground",
+  "社会・くらし": "an aerial view of a city intersection with stylised people and buildings, clean geometric lines",
+};
+
+/**
+ * 【一時】12カテゴリのテンプレ画像を Imagen 3 で生成し Storage `templates/{slug}.jpg` へ保存。
+ * 返り値は { トピック: ダウンロードURL }。取り込み後にこの関数は削除する。
+ */
+export const genTemplates = onRequest(
+  { timeoutSeconds: 540, memory: "1GiB" },
+  async (req, res) => {
+    if (req.query.secret !== TEMPLATE_GEN_SECRET) {
+      res.status(403).send("forbidden");
+      return;
+    }
+    const project = process.env.GCLOUD_PROJECT ?? "";
+    const accessToken = await fetchAccessToken();
+    if (!accessToken) {
+      res.status(500).send("no access token");
+      return;
+    }
+    const style = THUMBNAIL_STYLE;
+    const endpoint = [
+      "https://us-central1-aiplatform.googleapis.com/v1",
+      `/projects/${project}/locations/us-central1`,
+      "/publishers/google/models/imagen-3.0-fast-generate-001:predict",
+    ].join("");
+    const bucket = getStorage().bucket();
+
+    const out: Record<string, string> = {};
+    for (const topic of TOPIC_CATEGORIES) {
+      const slug = TOPIC_TEMPLATE_ASSET[topic].split("/").pop()!.replace(".jpg", "");
+      try {
+        const imgRes = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            instances: [{ prompt: `${TOPIC_TEMPLATE_PROMPT[topic]}. ${style}` }],
+            parameters: { sampleCount: 1, aspectRatio: "16:9" },
+          }),
+        });
+        if (!imgRes.ok) throw new Error(`Imagen ${imgRes.status}: ${await imgRes.text()}`);
+        const imgData = (await imgRes.json()) as {
+          predictions: Array<{ bytesBase64Encoded: string }>;
+        };
+        const buffer = Buffer.from(imgData.predictions[0].bytesBase64Encoded, "base64");
+        const file = bucket.file(`templates/${slug}.jpg`);
+        const token = randomUUID();
+        await file.save(buffer, {
+          contentType: "image/jpeg",
+          metadata: {
+            cacheControl: "public, max-age=31536000",
+            metadata: { firebaseStorageDownloadTokens: token },
+          },
+        });
+        const encodedPath = encodeURIComponent(`templates/${slug}.jpg`);
+        out[topic] =
+          `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodedPath}?alt=media&token=${token}`;
+      } catch (err) {
+        out[topic] = `ERROR: ${err}`;
+      }
+    }
+    res.json(out);
+  },
 );

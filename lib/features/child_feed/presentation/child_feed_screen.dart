@@ -189,6 +189,13 @@ class _FeedPage extends ConsumerWidget {
                   item.displayTitle,
                   style: textTheme.displaySmall?.copyWith(
                     color: AppColors.brandPrimaryInk,
+                    shadows: const [
+                      Shadow(
+                        color: Color(0xB3000000),
+                        blurRadius: 8,
+                        offset: Offset(0, 1),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: AppSpacing.space2),
