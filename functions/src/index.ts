@@ -24,7 +24,41 @@ const VERTEX_LOCATION = "us-central1";
 const GEMINI_MODEL = "gemini-2.5-flash";
 
 // quality_review マップの構造バージョン。後で項目を変えたら上げる。
-const QUALITY_SCHEMA_VERSION = 1;
+// v2: topic（トピック分類）を追加し interest_context をソース名からトピックへ変更。
+const QUALITY_SCHEMA_VERSION = 2;
+
+/**
+ * 記事トピックの固定タクソノミー。
+ *
+ * interest_context に入り、DISA の興味カテゴリ・パーソナライズ・サムネ生成の
+ * 全てで使われる。アプリ側 `categoryIcon()`（feed_thumbnail.dart）の
+ * 日本語キーワード（科学/宇宙/テクノロジー/自然/動物/スポーツ/食べ物/音楽）と
+ * 部分一致するよう命名している。変更時はアプリ側のアイコン対応も確認すること。
+ */
+const TOPIC_CATEGORIES = [
+  "科学",
+  "宇宙",
+  "テクノロジー",
+  "自然・環境",
+  "動物",
+  "スポーツ",
+  "食べ物",
+  "音楽・アート",
+  "経済・お金",
+  "国際・世界",
+  "文化・歴史",
+  "社会・くらし",
+] as const;
+
+/** 分類できなかったときの受け皿トピック。 */
+const TOPIC_FALLBACK = "社会・くらし";
+
+/**
+ * Imagen サムネ生成を実行する興味スコアの下限（コスト最適化）。
+ * これ未満の記事は text_overlay フォールバック（アクセントグラデ + カテゴリアイコン）で
+ * 表示され、閲覧されて興味スコアが上がれば次回パーソナライズ時に生成される。
+ */
+const THUMBNAIL_MIN_INTEREST_SCORE = 40;
 
 /** GNews API のレスポンス記事。 */
 interface GNewsArticle {
@@ -67,6 +101,8 @@ interface QualityReview {
     reliability: number | null;
   };
   reason: string;
+  /** TOPIC_CATEGORIES のいずれか。interest_context として保存される。 */
+  topic: string;
 }
 
 /** 記事 URL から安定した doc id を作る（再取得時は冪等に上書き）。 */
@@ -166,6 +202,9 @@ async function scoreArticle(a: GNewsArticle): Promise<QualityReview | null> {
     "  複数視点に触れているほど高い。過激・感情的な煽りは低い。",
     "④ safety（安全面）: 残虐/性的/差別/自殺・自傷、または過度に恐怖を煽る描写が含まれるなら",
     "  safe=false。該当する種類を safety_flags に日本語で列挙（無ければ空配列）。",
+    "⑤ topic（トピック分類）: 記事の主題に最も近いものを次のリストから必ず1つ選ぶ:",
+    `  ${TOPIC_CATEGORIES.join(" / ")}`,
+    `  どれにも当てはまらない場合は「${TOPIC_FALLBACK}」を選ぶ。リストにない語を作らない。`,
     "",
     "reason には判定理由を日本語1文で簡潔に書く。",
     "",
@@ -187,6 +226,13 @@ async function scoreArticle(a: GNewsArticle): Promise<QualityReview | null> {
       : [];
     const passed = parsed.safe === true && flagged.length === 0;
 
+    // タクソノミー外の値（Gemini の造語）はフォールバックに寄せる
+    const topic =
+      typeof parsed.topic === "string" &&
+      (TOPIC_CATEGORIES as readonly string[]).includes(parsed.topic)
+        ? parsed.topic
+        : TOPIC_FALLBACK;
+
     return {
       verdict: "approved",
       safety: { passed, flagged },
@@ -196,6 +242,7 @@ async function scoreArticle(a: GNewsArticle): Promise<QualityReview | null> {
         reliability: clampScore(parsed.reliability),
       },
       reason: typeof parsed.reason === "string" ? parsed.reason : "",
+      topic,
     };
   } catch (err) {
     logger.warn("scoreArticle failed; dropping article (fail-closed)", {
@@ -337,12 +384,17 @@ async function ingestArticles(articles: GNewsArticle[]): Promise<number> {
       child_title_with_ruby: cf.childTitleWithRuby,
       thumbnail_config: thumbnailConfig,
       char_count: countCharsForReading(cf.childBodyWithRuby),
-      interest_context: a.source?.name ?? "ニュース",
+      // 興味カテゴリ = 採点ゲートで分類したトピック（TOPIC_CATEGORIES）。
+      // 旧実装ではソース名（"NHK ニュース" 等）が入っており、DISA が
+      // 「よく見る放送局」を学習してしまっていた。出典は source_name に分離。
+      interest_context: review.topic,
+      source_name: a.source?.name ?? "ニュース",
       // 採点ゲートの結果。品質3軸は記録のみ（除外には未使用）。
       quality_review: {
         verdict: review.verdict,
         safety: review.safety,
         scores: review.scores,
+        topic: review.topic,
         reason: review.reason,
         model: GEMINI_MODEL,
         schema_version: QUALITY_SCHEMA_VERSION,
@@ -358,7 +410,8 @@ async function ingestArticles(articles: GNewsArticle[]): Promise<number> {
     batch.set(db.collection("rejected_articles").doc(id), {
       original_title: a.title,
       url: a.url,
-      interest_context: a.source?.name ?? "ニュース",
+      interest_context: review?.topic ?? TOPIC_FALLBACK,
+      source_name: a.source?.name ?? "ニュース",
       published_at: Timestamp.fromDate(new Date(a.publishedAt)),
       // review===null は採点失敗(fail-closed/Vertexブロック)、それ以外は④安全NG。
       rejected_reason: review === null ? "scoring_failed" : "safety",
@@ -768,12 +821,23 @@ export const personalizeArticles = onCall(
       // storage.googleapis.com/... = 旧 GCS 直 URL または GNews URL（CORS NG）→ 再生成
       return !config.optional_generated_url.startsWith("https://firebasestorage.googleapis.com");
     };
-    const thumbTargets = settled
+    const fulfilled = settled
       .filter(
         (r): r is PromiseFulfilledResult<PersonalizedRecord> =>
           r.status === "fulfilled" && needsThumbnail(r.value.thumbnail_config)
       )
       .map((r) => r.value);
+    // コスト最適化: 興味スコアが低い記事はフィード下位に沈むため Imagen を実行しない。
+    // 該当記事は text_overlay（アクセントグラデ + カテゴリアイコン）のまま表示される。
+    const thumbTargets = fulfilled.filter(
+      (item) => item.interest_score >= THUMBNAIL_MIN_INTEREST_SCORE
+    );
+    const skippedForCost = fulfilled.length - thumbTargets.length;
+    if (skippedForCost > 0) {
+      logger.info(
+        `personalizeArticles: skipped ${skippedForCost} thumbnails (interest_score < ${THUMBNAIL_MIN_INTEREST_SCORE})`
+      );
+    }
 
     if (thumbTargets.length > 0) {
       try {

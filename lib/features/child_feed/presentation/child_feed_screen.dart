@@ -7,6 +7,7 @@ import '../../../shared/models/personalized_feed_item.dart';
 import '../../../shared/widgets/bouncy_tap.dart';
 import '../../../shared/widgets/feed_thumbnail.dart';
 import '../../../shared/widgets/furigana_text.dart';
+import '../../../shared/widgets/status_views.dart';
 import '../application/child_feed_provider.dart';
 import '../../common_view/application/favorites_provider.dart';
 
@@ -67,30 +68,39 @@ class _ChildFeedScreenState extends ConsumerState<ChildFeedScreen> {
     final feedAsync = ref.watch(childFeedProvider);
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: AppColors.ink900,
       body: feedAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Text('読み込みに失敗しました: $e',
-              style: const TextStyle(color: Colors.white)),
-        ),
+        error: (e, _) =>
+            ErrorRetryView(onRetry: () => ref.invalidate(childFeedProvider)),
         data: (feed) {
           if (feed.isEmpty) {
-            return const Center(
-              child: Text('まだ記事がありません',
-                  style: TextStyle(color: Colors.white)),
+            return EmptyStateView(
+              hint: 'メニューの「ニュース取得」をおしてね',
+              onRetry: () => ref.invalidate(childFeedProvider),
             );
           }
           _currentNewsId ??= feed.first.newsId;
 
-          return PageView.builder(
-            controller: _controller,
-            scrollDirection: Axis.vertical,
-            physics: const _FastPageScrollPhysics(),
-            itemCount: feed.length,
-            onPageChanged: (index) => _onPageChanged(feed, index),
-            itemBuilder: (context, index) =>
-                _FeedPage(item: feed[index], index: index),
+          return Stack(
+            children: [
+              PageView.builder(
+                controller: _controller,
+                scrollDirection: Axis.vertical,
+                physics: const _FastPageScrollPhysics(),
+                itemCount: feed.length,
+                onPageChanged: (index) => _onPageChanged(feed, index),
+                itemBuilder: (context, index) =>
+                    _FeedPage(item: feed[index], index: index),
+              ),
+              // サンプルフォールバック中は必ず可視化する（障害の隠蔽防止）
+              if (isSampleFeed(feed))
+                const Positioned(
+                  top: AppSpacing.space3,
+                  right: AppSpacing.space3,
+                  child: SafeArea(child: SampleDataBanner()),
+                ),
+            ],
           );
         },
       ),

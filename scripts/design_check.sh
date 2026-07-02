@@ -2,17 +2,32 @@
 # デザインシステム準拠チェック
 # ステージ済み Dart ファイルからトークン違反を検出する
 #
+# 使い方:
+#   design_check.sh          → ステージ済みファイルのみ（pre-commit / hook 用）
+#   design_check.sh --all    → lib/ 配下の全 Dart ファイル（/qa Skill 用）
+#
 # Exit code: 0 = 違反なし、1 = 違反あり
 
 PROJECT_ROOT="$(git rev-parse --show-toplevel)"
 
-# ステージ済み Dart ファイルを取得
 # tokens.dart / theme.dart はトークン定義ファイルなので除外
-STAGED=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null \
-  | grep '\.dart$' \
-  | grep -v 'tokens\.dart' \
-  | grep -v 'theme\.dart' \
-  | grep -v 'colors\.dart')
+# 生成ファイル (.g.dart / .freezed.dart) も対象外
+if [ "$1" = "--all" ]; then
+  STAGED=$(git -C "$PROJECT_ROOT" ls-files 'lib/*.dart' 'lib/**/*.dart' 2>/dev/null \
+    | grep -v '\.g\.dart$' \
+    | grep -v '\.freezed\.dart$' \
+    | grep -v 'tokens\.dart' \
+    | grep -v 'theme\.dart' \
+    | grep -v 'colors\.dart')
+else
+  STAGED=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null \
+    | grep '\.dart$' \
+    | grep -v '\.g\.dart$' \
+    | grep -v '\.freezed\.dart$' \
+    | grep -v 'tokens\.dart' \
+    | grep -v 'theme\.dart' \
+    | grep -v 'colors\.dart')
+fi
 
 if [ -z "$STAGED" ]; then
   exit 0

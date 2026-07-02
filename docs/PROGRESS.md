@@ -77,12 +77,20 @@
 4. **YouTube風メディアグリッド（仕様②）**: タブレット向けグリッド探索
 5. **Firestore セキュリティルール**: `users/{uid}` を本人のみ、`news_pool` は読み取り専用に
 6. **リアルタイム購読化**: 現状は `.get()` 一括取得。必要に応じて `snapshots()` ストリームへ
-1. **`interest_context` のトピック分類**: 現在は GNews のソース名（"NHK ニュース" 等）が入っている。Gemini でトピック分類（"Science", "Sports" 等）に変換すると、パーソナライズ精度とサムネ品質が向上する
+1. ~~**`interest_context` のトピック分類**~~: ✅ 2026-07-02 完了。採点ゲート（`scoreArticle`）が固定タクソノミー12分類でトピックを判定し `interest_context` に保存（出典名は `source_name` に分離）。**要デプロイ**
 2. **FCM Push 受信**: 親子トークプロンプト準備・興味マイルストーン到達時の通知 + ディープリンク
 3. **YouTube風メディアグリッド（仕様②）**: タブレット向けグリッド探索
 4. **Firestore セキュリティルール**: `users/{uid}` を本人のみ、`news_pool` は読み取り専用に強化
 5. **リアルタイム購読化**: 現状は `.get()` 一括取得。必要に応じて `snapshots()` ストリームへ
-6. **サムネコスト最適化**: `interest_score < 40` の記事は Imagen 生成をスキップ
+6. ~~**サムネコスト最適化**~~: ✅ 2026-07-02 完了。`interest_score < 40` は Imagen をスキップ（`THUMBNAIL_MIN_INTEREST_SCORE`）。**要デプロイ**
+
+### 2026-07-02 の業務改善セッションで追加
+- `/qa` Skill（`.claude/skills/qa/`）: analyze / test / design token / tsc の一括 QA ゲート
+- `scripts/design_check.sh --all`: lib/ 全量のトークン違反チェック（既存違反4件も解消）
+- テスト拡充: `test/furigana_text_test.dart`（ルビ解析6件）・`test/models_test.dart`（変換8件）
+- 共通ステータス UI: `lib/shared/widgets/status_views.dart`（ErrorRetryView / EmptyStateView / SampleDataBanner）。ChildFeed に適用し、サンプルフォールバック中はバナーで可視化
+- 運用ランブック: `docs/OPERATIONS.md`（チェックリスト・デプロイSOP・障害対応・コスト管理）
+- ドキュメントマップ: `docs/README.md`（各docの役割と「何を正とするか」）
 
 ### Firestore 実連携（完了）の内容
 - `lib/core/firebase/firebase_providers.dart`: `firebaseReadyProvider` /

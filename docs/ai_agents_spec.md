@@ -61,7 +61,8 @@
 | `display_tagline` | string | Gemini 生成のキャッチコピー |
 | `child_body_with_ruby` | string | ルビ付き子ども向け本文 |
 | `parent_summary` | string | 保護者向け要約 |
-| `interest_context` | string | ニュースソース名（例: "NHK ニュース"） |
+| `interest_context` | string | トピック分類（採点ゲートの Gemini が固定タクソノミーから選択。例: "科学", "スポーツ"） |
+| `source_name` | string | ニュースソース名（例: "NHK ニュース"）。2026-07-02 に interest_context から分離 |
 | `char_count` | int | ルビ除去後の実文字数（DISA の T_exp 計算用） |
 | `thumbnail_config` | object | サムネイル設定（下記参照） |
 
@@ -379,8 +380,8 @@ S(t_new) = S(t_prev) × e^(−λ × Δdays) + α × E(i)
 
 | 項目 | 現状 | 今後 |
 |---|---|---|
-| `interest_context` | GNews ソース名（例: "NHK ニュース"）が入る | Gemini でトピック分類（"Science", "Sports" 等）に変換 |
-| サムネ生成コスト | 20記事すべてに Imagen を実行 | `interest_score < 40` の記事はスキップして削減 |
+| `interest_context` | ✅ 採点ゲート（`scoreArticle`）が固定タクソノミー12分類（科学/宇宙/テクノロジー/自然・環境/動物/スポーツ/食べ物/音楽・アート/経済・お金/国際・世界/文化・歴史/社会・くらし）でトピック分類（2026-07-02） | 既存記事は再取得時に上書き。旧ソース名カテゴリの interest_profile スコアは DISA 減衰で自然消滅 |
+| サムネ生成コスト | ✅ `interest_score < 40`（`THUMBNAIL_MIN_INTEREST_SCORE`）の記事は Imagen をスキップ（2026-07-02） | 閾値はコスト実績を見て調整 |
 | `child_title_with_ruby` | パーソナライズ後にルビが更新されない | personalizeOneArticle 側でルビ振り直しを追加 |
 | 興味スコア初期値 | 空（新規ユーザーは書き換えなし） | オンボーディングで初期カテゴリを選択させる |
 | パーソナライズ更新頻度 | 24時間チェック ✅ | — |

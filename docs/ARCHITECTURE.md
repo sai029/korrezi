@@ -113,7 +113,9 @@ Gemini プロンプト (gemini-2.5-flash):
 | `published_at` | Timestamp | 記事の公開日時 |
 | `child_body_with_ruby` | string | Gemini 生成の子ども向け本文 (ルビ付き) |
 | `parent_summary` | string | Gemini 生成の保護者向け箇条書き |
-| `quality_review` | map | 採点ゲートの結果 (`safety`/`scores`/`reason` 等)。詳細は [`CONTENT_QUALITY_GATE.md`](CONTENT_QUALITY_GATE.md) |
+| `interest_context` | string | 採点ゲートが分類したトピック（固定タクソノミー12分類。例: "科学"）。2026-07-02 以前はソース名が入っていた |
+| `source_name` | string | 出典名（例: "NHK ニュース"） |
+| `quality_review` | map | 採点ゲートの結果 (`safety`/`scores`/`topic`/`reason` 等)。詳細は [`CONTENT_QUALITY_GATE.md`](CONTENT_QUALITY_GATE.md) |
 
 書き込み: Cloud Functions (Admin SDK) のみ。クライアントからは読み取り専用。
 取り込みは GNews 取得 → **採点ゲート (`scoreArticle`)** → 合格分のみ `toChildFriendly` 変換 → 書き込み。
@@ -127,7 +129,7 @@ Gemini プロンプト (gemini-2.5-flash):
 | フィールド | 型 | 内容 |
 |---|---|---|
 | `news_id` | string | `news_pool` の参照キー |
-| `interest_context` | string | 出典名 (例: "NHK ニュース") |
+| `interest_context` | string | トピック分類 (例: "科学", "スポーツ") |
 | `display_title` | string | Gemini 生成の子ども向けタイトル |
 | `display_tagline` | string | Gemini 生成のキャッチコピー |
 | `thumbnail_config` | map | `{ mode, base_asset, optional_generated_url }` |

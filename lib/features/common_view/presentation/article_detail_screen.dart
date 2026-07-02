@@ -207,7 +207,7 @@ class _NavCircleButton extends StatelessWidget {
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.15),
+                color: AppColors.ink900.withValues(alpha: 0.15),
                 blurRadius: 6,
                 offset: const Offset(0, 1),
               ),

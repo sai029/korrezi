@@ -190,6 +190,13 @@ final childFeedProvider =
   ChildFeedNotifier.new,
 );
 
+/// 表示中フィードがサンプルデータかどうか。
+///
+/// エラー・オフライン・データ未投入時はサンプルへ静かにフォールバックするため、
+/// UI 側でバナー表示して「本番障害に気づけない」事故を防ぐ。
+bool isSampleFeed(List<PersonalizedFeedItem> feed) =>
+    feed.isNotEmpty && feed.first.newsId == _sampleFeed.first.newsId;
+
 // ----- 開発用サンプルデータ（Firestore連携までの仮データ）-----
 const _sampleFeed = <PersonalizedFeedItem>[
   PersonalizedFeedItem(

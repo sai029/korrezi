@@ -32,7 +32,8 @@ class NewsPool with _$NewsPool {
     /// Gemini が生成したキャッチコピー。
     @JsonKey(name: 'display_tagline') @Default('') String displayTagline,
 
-    /// 出典名（例: "NHK ニュース"）。interest_profile のスコアキーとして使用。
+    /// 興味カテゴリ（採点ゲートが分類したトピック。例: "科学", "スポーツ"）。
+    /// interest_profile のスコアキーとして使用。出典名は Firestore 側 source_name に分離。
     @JsonKey(name: 'interest_context') @Default('ニュース') String interestContext,
 
     /// ルビ markup を埋め込んだ子ども向けタイトル（未設定時は originalTitle で表示）。
