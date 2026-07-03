@@ -1,6 +1,6 @@
 # 進捗状況
 
-> 最終更新: 2026-06-28 ／ 要件は [`SPECIFICATION.md`](SPECIFICATION.md) を参照。
+> 最終更新: 2026-07-03 ／ 要件は [`SPECIFICATION.md`](SPECIFICATION.md) を参照。保留アクションは [`PENDING_ACTIONS.md`](PENDING_ACTIONS.md)。
 
 ## 全体サマリ
 
@@ -77,12 +77,22 @@
 4. **YouTube風メディアグリッド（仕様②）**: タブレット向けグリッド探索
 5. **Firestore セキュリティルール**: `users/{uid}` を本人のみ、`news_pool` は読み取り専用に
 6. **リアルタイム購読化**: 現状は `.get()` 一括取得。必要に応じて `snapshots()` ストリームへ
-1. ~~**`interest_context` のトピック分類**~~: ✅ 2026-07-02 完了。採点ゲート（`scoreArticle`）が固定タクソノミー12分類でトピックを判定し `interest_context` に保存（出典名は `source_name` に分離）。**要デプロイ**
+1. ~~**`interest_context` のトピック分類**~~: ✅ 2026-07-02 完了・デプロイ済み。採点ゲート（`scoreArticle`）が固定タクソノミー12分類でトピックを判定し `interest_context` に保存（出典名は `source_name` に分離）。
 2. **FCM Push 受信**: 親子トークプロンプト準備・興味マイルストーン到達時の通知 + ディープリンク
 3. **YouTube風メディアグリッド（仕様②）**: タブレット向けグリッド探索
 4. **Firestore セキュリティルール**: `users/{uid}` を本人のみ、`news_pool` は読み取り専用に強化
 5. **リアルタイム購読化**: 現状は `.get()` 一括取得。必要に応じて `snapshots()` ストリームへ
-6. ~~**サムネコスト最適化**~~: ✅ 2026-07-02 完了。`interest_score < 40` は Imagen をスキップ（`THUMBNAIL_MIN_INTEREST_SCORE`）。**要デプロイ**
+6. ~~**サムネコスト最適化（THUMBNAIL_MIN_INTEREST_SCORE）**~~: 2026-07-03 に Phase③ で**撤去**（下記参照）。
+
+### 2026-07-03 のサムネ刷新・Phase③ セッションで追加
+- **サムネアートスタイル刷新**（`THUMBNAIL_STYLE`）: 未就学児向けの幼い絵から、中学受験期（10〜12歳）向けの
+  「知的でクール、pop で明るいエディトリアル線画」へ。Gemini でシーンのみ英語生成 → スタイルは決め打ちで付与。
+- **トピック別テンプレ画像12枚**（`assets/thumbnails/templates/*.jpg`）: Imagen 生成失敗時のフォールバック。
+- **タイトル可読性**: `AppGradients.feedOverlay` を3ストップ化 + `AppColors.onImageShadow` トークンで白タイトルに影。
+- **Phase③ 興味別サムネ再生成**（`personalizeArticles`）: 生成を A(補完・興味非依存/両コレクション更新) と
+  B(未読×上位興味トピックの専用サムネ/`thumbnails/personalized/{uid}/{id}.jpg`・personalized_feed のみ・
+  `thumb_variant:"interest"` 冪等化) に分離。`THUMBNAIL_MIN_INTEREST_SCORE` は撤去。
+  - 再生成バグ修正（commit `44644f9`）: 再パーソナライズで専用サムネが共有画像に戻る不具合を修正。**未デプロイ**（`docs/PENDING_ACTIONS.md` D1）。
 
 ### 2026-07-02 の業務改善セッションで追加
 - `/qa` Skill（`.claude/skills/qa/`）: analyze / test / design token / tsc の一括 QA ゲート

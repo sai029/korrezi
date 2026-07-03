@@ -24,6 +24,7 @@ autonomous には進めず、方針確認が必要なもの。
 | P4 | `lib/features/parent_dashboard/presentation/parent_dashboard_screen.dart:293` | 「お気に入り保存 / 後で話す」リスト追加が未実装（TODO）。 |
 | P5 | パーソナライズ後タイトルのルビ振り直し | 書き換え後タイトルにルビが付かない。Gemini 側でルビ生成が必要。 |
 | P6 | 品質ゲート閾値キャリブレーション | 採点実績 100〜200 件蓄積後に実施。手順は `docs/OPERATIONS.md §6`。データ待ち。 |
+| P7 | `lib/core/ai/ai_agent_service.dart:31` `generateThumbnail()` / functions `generateThumbnail` onCall | クライアントメソッドは定義のみで**呼び出し無し**（サムネは ingest/personalize でサーバ生成する設計に移行済み）。デッドコード。削除するなら Dart メソッド + デプロイ済み onCall の両方を撤去（要デプロイ）。将来 UI から個別再生成する余地を残すなら保持。 |
 
 ## ✅ 自律完了済み（参考）
 
