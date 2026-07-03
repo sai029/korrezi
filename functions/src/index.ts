@@ -80,7 +80,7 @@ const TOPIC_FALLBACK = "社会・くらし";
  *
  * Imagen 生成画像が無い/失敗した記事でも「何の記事か分かる画像」を必ず表示するための
  * 基本レイヤー。thumbnail_config.base_asset に入れ、FeedThumbnail が AssetImage で描画する。
- * ファイルは Flutter 側 assets/thumbnails/templates/*.webp と pubspec への登録が必要。
+ * ファイルは Flutter 側 assets/thumbnails/templates/*.jpg と pubspec への登録が必要。
  */
 const TOPIC_TEMPLATE_ASSET: Record<string, string> = {
   "科学": "assets/thumbnails/templates/science.jpg",
@@ -101,13 +101,6 @@ const TOPIC_TEMPLATE_ASSET: Record<string, string> = {
 function templateAssetForTopic(topic: string): string {
   return TOPIC_TEMPLATE_ASSET[topic] ?? TOPIC_TEMPLATE_ASSET[TOPIC_FALLBACK];
 }
-
-/**
- * Imagen サムネ生成を実行する興味スコアの下限（コスト最適化）。
- * これ未満の記事は text_overlay フォールバック（アクセントグラデ + カテゴリアイコン）で
- * 表示され、閲覧されて興味スコアが上がれば次回パーソナライズ時に生成される。
- */
-const THUMBNAIL_MIN_INTEREST_SCORE = 40;
 
 /** GNews API のレスポンス記事。 */
 interface GNewsArticle {
@@ -934,88 +927,134 @@ export const personalizeArticles = onCall(
     await batch.commit();
 
     // ─── バックグラウンドサムネ生成 ────────────────────────────────────────────
-    // Imagen 3 でサムネを生成する対象を選定。
-    // Storage URL（storage.googleapis.com）が既にある記事はスキップ（冪等）。
-    // GNews 由来のURLが入っている記事は CORS で表示できないため再生成対象にする。
-    const needsThumbnail = (config: ThumbnailConfigData): boolean => {
-      if (config.mode !== "generated") return true;
-      // firebasestorage.googleapis.com/v0/... = Imagen 生成済み（CORS OK）→ スキップ
-      // storage.googleapis.com/... = 旧 GCS 直 URL または GNews URL（CORS NG）→ 再生成
-      return !config.optional_generated_url.startsWith("https://firebasestorage.googleapis.com");
-    };
+    // 2 種類の生成を行う。
+    //  A. サムネ補完（興味非依存）: firebasestorage URL を持たない記事に共有サムネを
+    //     生成し news_pool と personalized_feed の両方に書く。CORS 表示の担保。
+    //     通常は ingestArticles で全記事生成済みのため、ここは生成失敗の取りこぼしのみ。
+    //  B. 興味別再生成（Phase③）: 既に共有サムネがあり・未読で・トピックが子どもの
+    //     上位興味に一致する記事に、その子専用サムネを生成。personalized_feed だけに
+    //     書き（共有 news_pool は汚さない）、thumb_variant:"interest" で冪等化する。
+    const hasValidThumb = (config: ThumbnailConfigData): boolean =>
+      config.mode === "generated" &&
+      config.optional_generated_url.startsWith("https://firebasestorage.googleapis.com");
+
     const fulfilled = settled
       .filter(
-        (r): r is PromiseFulfilledResult<PersonalizedRecord> =>
-          r.status === "fulfilled" && needsThumbnail(r.value.thumbnail_config)
+        (r): r is PromiseFulfilledResult<PersonalizedRecord> => r.status === "fulfilled"
       )
       .map((r) => r.value);
-    // コスト最適化: 興味スコアが低い記事はフィード下位に沈むため Imagen を実行しない。
-    // 該当記事は text_overlay（アクセントグラデ + カテゴリアイコン）のまま表示される。
-    const thumbTargets = fulfilled.filter(
-      (item) => item.interest_score >= THUMBNAIL_MIN_INTEREST_SCORE
+
+    // 子どもの上位興味カテゴリ（減衰後 > 0.5・上位5件）。B の対象トピック判定に使う。
+    const topInterestCategories = new Set(
+      Object.entries(decayedInterests)
+        .filter(([, v]) => v > 0.5)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 5)
+        .map(([k]) => k)
     );
-    const skippedForCost = fulfilled.length - thumbTargets.length;
-    if (skippedForCost > 0) {
-      logger.info(
-        `personalizeArticles: skipped ${skippedForCost} thumbnails (interest_score < ${THUMBNAIL_MIN_INTEREST_SCORE})`
-      );
+
+    // 既存 personalized_feed の is_viewed / thumb_variant を読み、未読判定と冪等化に使う。
+    const feedStateSnap = await db
+      .collection("users").doc(uid).collection("personalized_feed").get();
+    const feedState = new Map<string, { viewed: boolean; variant: string }>();
+    for (const d of feedStateSnap.docs) {
+      const data = d.data();
+      feedState.set(d.id, {
+        viewed: data.is_viewed === true,
+        variant: (data.thumb_variant as string) ?? "",
+      });
     }
 
-    if (thumbTargets.length > 0) {
-      try {
-        const project = process.env.GCLOUD_PROJECT ?? "";
-        const tokenRes = await fetch(
-          "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
-          { headers: { "Metadata-Flavor": "Google" } }
-        );
-        const { access_token: accessToken } = (await tokenRes.json()) as {
-          access_token: string;
-        };
+    // A: 共有サムネが未整備の記事。
+    const completionTargets = fulfilled.filter(
+      (item) => !hasValidThumb(item.thumbnail_config)
+    );
+    // B: 共有サムネはあるが、未読 × 上位興味トピック × 未生成 の記事。
+    const interestTargets = fulfilled.filter((item) => {
+      if (!hasValidThumb(item.thumbnail_config)) return false; // A に任せ二重生成を避ける
+      if (!topInterestCategories.has(item.interest_context)) return false;
+      const st = feedState.get(item.news_id);
+      if (st?.viewed) return false;                 // 既読は再生成しない
+      if (st?.variant === "interest") return false; // 生成済みはスキップ（冪等）
+      return true;
+    });
 
-        const thumbSettled = await Promise.allSettled(
-          thumbTargets.map(async (item) => {
-            const imageUrl = await generateOneThumbnail(
-              item.news_id,
-              item.display_title,
-              item.display_tagline,
-              item.interest_context,
-              accessToken,
-              project
-            );
-            return { news_id: item.news_id, imageUrl };
-          })
-        );
-
+    if (completionTargets.length > 0 || interestTargets.length > 0) {
+      const project = process.env.GCLOUD_PROJECT ?? "";
+      const accessToken = await fetchAccessToken();
+      if (!accessToken) {
+        logger.warn("personalizeArticles: access token unavailable, skip thumbnails");
+      } else {
+        const interestHint = [...topInterestCategories].join(", ");
         const thumbBatch = db.batch();
         let thumbCount = 0;
-        for (const r of thumbSettled) {
+
+        // A: 共有サムネ → news_pool + personalized_feed の両方を更新。
+        const compSettled = await Promise.allSettled(
+          completionTargets.map(async (item) => ({
+            news_id: item.news_id,
+            imageUrl: await generateOneThumbnail(
+              item.news_id, item.display_title, item.display_tagline,
+              item.interest_context, accessToken, project
+            ),
+          }))
+        );
+        for (const r of compSettled) {
           if (r.status !== "fulfilled") {
-            logger.warn("thumbnail generation failed", { reason: `${r.reason}` });
+            logger.warn("thumbnail(completion) failed", { reason: `${r.reason}` });
             continue;
           }
           const { news_id, imageUrl } = r.value;
-          const thumbConfig: ThumbnailConfigData = {
-            mode: "generated",
-            base_asset: "",
-            optional_generated_url: imageUrl,
+          const cfg: ThumbnailConfigData = {
+            mode: "generated", base_asset: "", optional_generated_url: imageUrl,
           };
-          // news_pool 更新 → 次回 personalizeArticles で text_overlay と判定されなくなる
           thumbBatch.update(db.collection("news_pool").doc(news_id), {
-            thumbnail_config: thumbConfig,
+            thumbnail_config: cfg,
           });
-          // personalized_feed 更新
           thumbBatch.set(
             db.collection("users").doc(uid).collection("personalized_feed").doc(news_id),
-            { thumbnail_config: thumbConfig },
+            { thumbnail_config: cfg },
             { merge: true }
           );
           thumbCount++;
         }
+
+        // B: 興味別サムネ → 共有パスを上書きせず専用パスへ保存、personalized_feed のみ更新。
+        const intSettled = await Promise.allSettled(
+          interestTargets.map(async (item) => ({
+            news_id: item.news_id,
+            imageUrl: await generateOneThumbnail(
+              item.news_id, item.display_title, item.display_tagline,
+              item.interest_context, accessToken, project,
+              {
+                storageObjectPath: `thumbnails/personalized/${uid}/${item.news_id}.jpg`,
+                interestHint,
+              }
+            ),
+          }))
+        );
+        for (const r of intSettled) {
+          if (r.status !== "fulfilled") {
+            logger.warn("thumbnail(interest) failed", { reason: `${r.reason}` });
+            continue;
+          }
+          const { news_id, imageUrl } = r.value;
+          const cfg: ThumbnailConfigData = {
+            mode: "generated", base_asset: "", optional_generated_url: imageUrl,
+          };
+          thumbBatch.set(
+            db.collection("users").doc(uid).collection("personalized_feed").doc(news_id),
+            { thumbnail_config: cfg, thumb_variant: "interest" },
+            { merge: true }
+          );
+          thumbCount++;
+        }
+
         if (thumbCount > 0) await thumbBatch.commit();
-        logger.info(`personalizeArticles: ${thumbCount} thumbnails generated for uid=${uid}`);
-      } catch (err) {
-        // サムネ失敗はパーソナライズ全体の失敗にしない
-        logger.error("thumbnail batch failed", { err: `${err}` });
+        logger.info(
+          `personalizeArticles: thumbnails for uid=${uid} ` +
+          `(completion=${completionTargets.length}, interest=${interestTargets.length})`
+        );
       }
     }
 
@@ -1035,6 +1074,11 @@ export const personalizeArticles = onCall(
  * @param category    カテゴリ/ジャンル（プロンプトに使用）
  * @param accessToken メタデータサーバーから取得した Bearer トークン
  * @param project     GCP プロジェクト ID
+ * @param opts        任意設定。
+ *   - storageObjectPath: 保存先 Storage オブジェクトパス（省略時 `thumbnails/{newsId}.jpg`）。
+ *     共有 news_pool サムネを上書きしたくない興味別再生成では専用パスを渡す。
+ *   - interestHint:      その子が特に関心を持つテーマ（英語）。Gemini のシーン選定を
+ *     この関心方向に寄せるためのヒント。
  * @returns           Storage 公開 URL
  */
 async function generateOneThumbnail(
@@ -1043,8 +1087,11 @@ async function generateOneThumbnail(
   tagline: string,
   category: string,
   accessToken: string,
-  project: string
+  project: string,
+  opts?: { storageObjectPath?: string; interestHint?: string }
 ): Promise<string> {
+  const storageObjectPath = opts?.storageObjectPath ?? `thumbnails/${newsId}.jpg`;
+  const interestHint = opts?.interestHint?.trim();
   // Gemini で記事内容から Imagen 向け英語ビジュアルプロンプトを生成する。
   // Imagen 3 は英語プロンプトの方が品質が高く、日本語ソース名（"NHK ニュース" 等）を
   // そのままテーマに使うと記事と無関係な画像が生成されるため、Gemini が意味を補完する。
@@ -1065,6 +1112,11 @@ async function generateOneThumbnail(
           `Article category: ${category}`,
           `Article title: ${title}`,
           `Article summary: ${tagline}`,
+          ...(interestHint
+            ? [`This reader is especially fascinated by: ${interestHint}. ` +
+               "If the article naturally connects to that interest, choose a scene that " +
+               "highlights the connection; otherwise ignore this hint."]
+            : []),
           "Rules: describe only the concrete visual subject (people, objects, setting, action).",
           "Do NOT mention any art style, colour, medium, or the words 'child'/'kids'.",
           "Output only the scene description in English (max 40 words). No explanation, no quotes.",
@@ -1111,7 +1163,7 @@ async function generateOneThumbnail(
   );
 
   const bucket = getStorage().bucket();
-  const file = bucket.file(`thumbnails/${newsId}.jpg`);
+  const file = bucket.file(storageObjectPath);
   // firebaseStorageDownloadTokens を埋め込むと Storage セキュリティルールに関係なく
   // 認証なしで読み込める安定した Download URL が発行される（有効期限なし）。
   const downloadToken = randomUUID();
@@ -1123,7 +1175,7 @@ async function generateOneThumbnail(
     },
   });
 
-  const encodedPath = encodeURIComponent(`thumbnails/${newsId}.jpg`);
+  const encodedPath = encodeURIComponent(storageObjectPath);
   return `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodedPath}?alt=media&token=${downloadToken}`;
 }
 
