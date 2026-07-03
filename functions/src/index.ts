@@ -898,30 +898,54 @@ export const personalizeArticles = onCall(
       )
     );
 
+    const fulfilled = settled
+      .filter(
+        (r): r is PromiseFulfilledResult<PersonalizedRecord> => r.status === "fulfilled"
+      )
+      .map((r) => r.value);
+
+    // 既存 personalized_feed の is_viewed / thumb_variant を対象記事分だけ読む
+    // （未読判定・冪等化に使用。全コレクション走査を避けるため getAll で対象 id のみ取得）。
+    const feedState = new Map<string, { viewed: boolean; variant: string }>();
+    if (fulfilled.length > 0) {
+      const feedRefs = fulfilled.map((item) =>
+        db.collection("users").doc(uid).collection("personalized_feed").doc(item.news_id)
+      );
+      const snaps = await db.getAll(...feedRefs);
+      for (const d of snaps) {
+        const data = d.data();
+        if (!data) continue;
+        feedState.set(d.id, {
+          viewed: data.is_viewed === true,
+          variant: (data.thumb_variant as string) ?? "",
+        });
+      }
+    }
+
     // telemetry（is_viewed / view_duration_seconds）は上書きしないよう merge: true
     const batch = db.batch();
     let count = 0;
-    for (const r of settled) {
-      if (r.status !== "fulfilled") continue;
-      const item = r.value;
+    for (const item of fulfilled) {
       const ref = db
         .collection("users")
         .doc(uid)
         .collection("personalized_feed")
         .doc(item.news_id);
-      batch.set(
-        ref,
-        {
-          news_id: item.news_id,
-          interest_context: item.interest_context,
-          display_title: item.display_title,
-          display_tagline: item.display_tagline,
-          thumbnail_config: item.thumbnail_config,
-          interest_score: item.interest_score,
-          personalized_at: item.personalized_at,
-        },
-        { merge: true }
-      );
+      // 既に興味別サムネ（variant:"interest"）を持つ未読記事は、その専用画像を保持する。
+      // item.thumbnail_config は共有 news_pool の画像なので、上書きすると B で再生成した
+      // 専用サムネが毎回リセットされ、以降 variant 冪等化で復活しなくなるため除外する。
+      const st = feedState.get(item.news_id);
+      const preserveThumb = st?.variant === "interest" && !st.viewed;
+      const payload: Record<string, unknown> = {
+        news_id: item.news_id,
+        interest_context: item.interest_context,
+        display_title: item.display_title,
+        display_tagline: item.display_tagline,
+        interest_score: item.interest_score,
+        personalized_at: item.personalized_at,
+      };
+      if (!preserveThumb) payload.thumbnail_config = item.thumbnail_config;
+      batch.set(ref, payload, { merge: true });
       count++;
     }
     await batch.commit();
@@ -938,12 +962,6 @@ export const personalizeArticles = onCall(
       config.mode === "generated" &&
       config.optional_generated_url.startsWith("https://firebasestorage.googleapis.com");
 
-    const fulfilled = settled
-      .filter(
-        (r): r is PromiseFulfilledResult<PersonalizedRecord> => r.status === "fulfilled"
-      )
-      .map((r) => r.value);
-
     // 子どもの上位興味カテゴリ（減衰後 > 0.5・上位5件）。B の対象トピック判定に使う。
     const topInterestCategories = new Set(
       Object.entries(decayedInterests)
@@ -952,18 +970,6 @@ export const personalizeArticles = onCall(
         .slice(0, 5)
         .map(([k]) => k)
     );
-
-    // 既存 personalized_feed の is_viewed / thumb_variant を読み、未読判定と冪等化に使う。
-    const feedStateSnap = await db
-      .collection("users").doc(uid).collection("personalized_feed").get();
-    const feedState = new Map<string, { viewed: boolean; variant: string }>();
-    for (const d of feedStateSnap.docs) {
-      const data = d.data();
-      feedState.set(d.id, {
-        viewed: data.is_viewed === true,
-        variant: (data.thumb_variant as string) ?? "",
-      });
-    }
 
     // A: 共有サムネが未整備の記事。
     const completionTargets = fulfilled.filter(
