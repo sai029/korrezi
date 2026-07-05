@@ -46,6 +46,7 @@
 | `fetchNews` / `refreshNewsPool`（記事10件） | 採点10 + 変換≤10 = **≤20回** | 0 |
 | `personalizeArticles`（記事20件） | 書き換え20 + サムネプロンプト≤20 = **≤40回** | **≤20回**（`interest_score < 40` はスキップ） |
 | `updateInterestModel`（閲覧1回） | agent_notes 1回 | 0 |
+| `generateQuiz`（記事詳細を開く） | **記事ごとに初回のみ1回**（2回目以降はキャッシュで0） | 0 |
 
 ### コストを増やす操作（実行前に立ち止まる）
 - **Scheduler の再開** → 毎日 GNews 10 req + Gemini ≤20回が自動で走る
@@ -96,9 +97,10 @@ cd functions && npm run build && firebase deploy --only functions
 
 ### 5-1. フィードに新しい記事が入らない
 1. GNews クォータ切れ？ → gnews.io ダッシュボード確認（100 req/日）
-2. 採点ゲートが全落とし？ → `firebase functions:log` で `quality gate dropped N/N` を確認。
-   Gemini 障害時は **fail-closed で全記事除外される仕様**（安全側）。`rejected_articles` の
-   `rejected_reason: "scoring_failed"` が並んでいたら Gemini/Vertex 側の障害を疑う
+2. 採点ゲートが全落とし？ → `firebase functions:log` で `quality gate dropped N/N`（`reasons` 付き）を確認。
+   `rejected_reason` は3種: `safety`（危険フラグ or Vertex ブロック）/ `scoring_failed`（fail-closed・
+   Gemini/Vertex 障害）/ `low_quality`（教育的価値<2＝ゴシップ等・**正常動作**）。
+   `scoring_failed` ばかりなら Gemini/Vertex 側の障害を疑う
 3. Scheduler 停止中？ → 仕様どおり（手動取得で代替）。§1 の早見表参照
 
 ### 5-2. サムネイルが表示されない（グラデーション背景のまま）
@@ -123,7 +125,8 @@ cd functions && npm run build && firebase deploy --only functions
 
 ## 6. 品質ゲート閾値キャリブレーション（自動除外への移行手順）
 
-品質3軸（①教育的価値 ②思考フック ③信頼性）は現在「記録のみ」。自動除外に移行する条件と手順:
+**①教育的価値は 2026-07-05 に自動除外へ移行済み**（`MIN_EDUCATIONAL_VALUE=2`・`functions/src/index.ts`）。
+残る ②思考フック ③信頼性は「記録のみ」。これらを自動除外に移行する条件と手順:
 
 1. **採点実績 100〜200 件**たまるまで待つ（毎日自動取得なら2〜3週間、手動連打なら数日）
 2. Firebase コンソールで `news_pool` の `quality_review.scores` と `rejected_articles` を眺め、
