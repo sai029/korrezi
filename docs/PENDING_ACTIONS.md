@@ -8,9 +8,9 @@
 
 | # | 対象 | 内容 | コマンド |
 |---|---|---|---|
-| D1 | `personalizeArticles` | **Phase③ の興味別サムネ再生成バグ修正**（commit `44644f9`）。再パーソナライズで専用サムネが共有画像に戻る不具合を修正済み。**未デプロイ**。 | `firebase deploy --only functions:personalizeArticles` |
+| ~~D1~~ | `personalizeArticles` | ~~Phase③ 再生成バグ修正（`44644f9`）~~ → **2026-07-04 デプロイ済み**。 | ✅ 完了 |
 
-> 注: Phase③ 本体（commit `5ad9a96`）は既にデプロイ済み。バグ修正 `44644f9` を上書きデプロイすれば最新になる。
+> 現在、未デプロイの関数変更はなし。P3 送信関数を実装したら再びここに追加する。
 
 ## 🟡 要判断（機能追加・プロダクト決定）
 
@@ -64,6 +64,6 @@ await getMessaging().sendEachForMulticast({
 ## ✅ 自律完了済み（参考）
 
 - Phase③ 実装（`5ad9a96`, デプロイ済み）
-- Phase③ 再生成バグ修正（`44644f9`, **未デプロイ** → D1）
+- Phase③ 再生成バグ修正（`44644f9`, 2026-07-04 デプロイ済み）
 - P3 FCM クライアント実装（`8c1f1e5`）: 受信・トークン保存・ディープリンク遷移・Android 権限
 - QA ゲート全項目 PASS（analyze / test / design / tsc）
