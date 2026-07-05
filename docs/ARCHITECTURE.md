@@ -126,10 +126,13 @@ Gemini プロンプト (gemini-2.5-flash):
 
 書き込み: Cloud Functions (Admin SDK) のみ。クライアントからは読み取り専用。
 取り込みは GNews 取得 → **採点ゲート (`scoreArticle`)** → 合格分のみ `toChildFriendly` 変換 → 書き込み。
-安全 NG は除外し news_pool に載せない。品質3軸は当面「記録のみ」（除外には未使用）。
+除外は3種: **安全 NG**（`safety_flags` が立った時のみ＋Vertex `safetySettings` の応答ブロック）・
+**採点失敗**（fail-closed）・**教育的価値が低い**（`MIN_EDUCATIONAL_VALUE=2` 未満＝ゴシップ対策）。
+思考フック・信頼性は当面「記録のみ」。詳細は [`CONTENT_QUALITY_GATE.md`](CONTENT_QUALITY_GATE.md)。
 
 #### `/rejected_articles/{newsId}` — 採点ゲートで除外した記事（監査用）
-落とした記事（安全 NG / 採点失敗）を `rejected_reason`・`safety_flags`・`scores`・`reason` 付きで保存。
+落とした記事（`rejected_reason`: `safety` / `scoring_failed` / `low_quality`）を
+`safety_flags`・`scores`・`reason` 付きで保存。
 **クライアント非公開**（`firestore.rules` で deny、Admin SDK のみ書き込み）。詳細は [`CONTENT_QUALITY_GATE.md`](CONTENT_QUALITY_GATE.md)。
 
 #### `/users/{uid}/personalized_feed/{newsId}` — ユーザー別

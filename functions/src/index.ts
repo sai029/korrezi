@@ -8,7 +8,7 @@ import { defineSecret } from "firebase-functions/params";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { logger } from "firebase-functions";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, HarmBlockThreshold, HarmCategory } from "@google/genai";
 
 initializeApp();
 
@@ -26,6 +26,32 @@ const GEMINI_MODEL = "gemini-2.5-flash";
 // quality_review マップの構造バージョン。後で項目を変えたら上げる。
 // v2: topic（トピック分類）を追加し interest_context をソース名からトピックへ変更。
 const QUALITY_SCHEMA_VERSION = 2;
+
+/**
+ * 品質ゲート: 教育的価値がこの値**未満**（＝1以下）の記事は除外する。
+ *
+ * 芸能ゴシップ・中身の薄い記事対策（AI 自身が reason で「不適切」と書いていても、
+ * 従来は品質軸を除外に使っておらず素通りしていた）。閾値はコスト・精度実績を見て調整する。
+ * 詳細は docs/CONTENT_QUALITY_GATE.md。
+ */
+const MIN_EDUCATIONAL_VALUE = 2;
+
+/**
+ * 採点の Vertex AI 安全フィルタ（本物の安全層）。
+ *
+ * プロンプトの safe 判定はブレが大きいため、実際の有害コンテンツは Vertex 側で
+ * 応答ごとブロックし、除外する（fail-closed）。無害な経済・スポーツ記事は
+ * どの閾値でも発火しないため、誤除外の再発はしない。過剰ブロックが出たら閾値を緩める。
+ */
+const SAFETY_SETTINGS = [
+  HarmCategory.HARM_CATEGORY_HARASSMENT,
+  HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+  HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+  HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+].map((category) => ({
+  category,
+  threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+}));
 
 /**
  * 記事トピックの固定タクソノミー。
@@ -224,7 +250,11 @@ async function scoreArticle(a: GNewsArticle): Promise<QualityReview | null> {
     const result = await getGenAI().models.generateContent({
       model: GEMINI_MODEL,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
-      config: { temperature: 0, responseMimeType: "application/json" },
+      config: {
+        temperature: 0,
+        responseMimeType: "application/json",
+        safetySettings: SAFETY_SETTINGS,
+      },
     });
     const text = result.text ?? "";
     const parsed = JSON.parse(text) as Record<string, unknown>;
@@ -232,12 +262,14 @@ async function scoreArticle(a: GNewsArticle): Promise<QualityReview | null> {
     const flagged = Array.isArray(parsed.safety_flags)
       ? parsed.safety_flags.filter((x): x is string => typeof x === "string")
       : [];
-    // fail-closed のまま、モデルが safe を真偽値/文字列どちらで返しても明示 true のみ通す。
-    const safeExplicit = parsed.safe === true || parsed.safe === "true";
-    const passed = safeExplicit && flagged.length === 0;
+    // 安全除外は「モデルが具体的な危険カテゴリを safety_flags に挙げた時」だけに限定する。
+    // 単独の safe 真偽値はブレが大きく、無害な記事（経済・スポーツ等）でも safe=true を
+    // きれいに返さず誤除外していた。実際の有害コンテンツは Vertex safetySettings が応答ごと
+    // ブロックして除外する（二重防御）ため、判定を flagged の有無へ一本化する。
+    const passed = flagged.length === 0;
 
-    // 除外時は理由を残す（safe_raw が null なら「safe キー欠落」= モデル出力の揺れ、
-    // flags 非空なら実際の安全 NG）。フィードが空になる原因の切り分け用。
+    // 除外時は理由を残す（safe_raw はモデルの safe 判断。flags 非空が実際の安全 NG）。
+    // フィードが空になる原因の切り分け用。
     if (!passed) {
       logger.info("scoreArticle dropped on safety", {
         url: a.url,
@@ -352,6 +384,22 @@ async function fetchGNewsArticles(): Promise<GNewsArticle[]> {
   return data.articles ?? [];
 }
 
+/** 採点ゲートの除外理由。null は合格。 */
+type RejectReason = "scoring_failed" | "safety" | "low_quality";
+
+/**
+ * 採点結果から除外理由を決める。null なら合格して news_pool に載せる。
+ *
+ * 優先順: 採点失敗(fail-closed) → 安全NG → 品質NG(教育的価値が低い)。
+ */
+function rejectReason(review: QualityReview | null): RejectReason | null {
+  if (review === null) return "scoring_failed";
+  if (!review.safety.passed) return "safety";
+  const edu = review.scores.educationalValue;
+  if (edu !== null && edu < MIN_EDUCATIONAL_VALUE) return "low_quality";
+  return null;
+}
+
 /**
  * 記事群を「採点ゲート → 合格分のみ子ども向け変換 → news_pool 書き込み」まで処理し、
  * 実際に書き込んだ件数を返す。fetchNews / refreshNewsPool の共通処理。
@@ -361,20 +409,29 @@ async function fetchGNewsArticles(): Promise<GNewsArticle[]> {
 async function ingestArticles(articles: GNewsArticle[]): Promise<number> {
   // 1. 採点（並列）。安全性を確認できない記事は null。
   const reviews = await Promise.all(articles.map(scoreArticle));
-  const scored = articles.map((a, i) => ({ article: a, review: reviews[i] }));
 
-  // 2. 合格 / 除外に振り分け。④安全NG と採点失敗(null)を除外、品質3軸は記録のみ。
-  const survivors = scored.filter(
-    (x): x is { article: GNewsArticle; review: QualityReview } =>
-      x.review !== null && x.review.safety.passed,
-  );
-  const rejected = scored.filter(
-    (x) => x.review === null || !x.review.safety.passed,
-  );
+  // 2. 合格 / 除外に振り分け。安全NG・採点失敗・品質NG(教育的価値<2)を除外。
+  const survivors: { article: GNewsArticle; review: QualityReview }[] = [];
+  const rejected: {
+    article: GNewsArticle;
+    review: QualityReview | null;
+    reason: RejectReason;
+  }[] = [];
+  articles.forEach((article, i) => {
+    const review = reviews[i];
+    const reason = rejectReason(review);
+    if (reason === null) {
+      // reason===null は review が非 null を保証する（rejectReason の定義より）。
+      survivors.push({ article, review: review as QualityReview });
+    } else {
+      rejected.push({ article, review, reason });
+    }
+  });
 
   if (rejected.length > 0) {
     logger.info(
       `quality gate dropped ${rejected.length}/${articles.length} articles`,
+      { reasons: rejected.map((x) => x.reason) },
     );
   }
 
@@ -410,7 +467,8 @@ async function ingestArticles(articles: GNewsArticle[]): Promise<number> {
       // 「よく見る放送局」を学習してしまっていた。出典は source_name に分離。
       interest_context: review.topic,
       source_name: a.source?.name ?? "ニュース",
-      // 採点ゲートの結果。品質3軸は記録のみ（除外には未使用）。
+      // 採点ゲートの結果。教育的価値は除外に使用（MIN_EDUCATIONAL_VALUE 未満は落とす）。
+      // 思考フック・信頼性は当面記録のみ。
       quality_review: {
         verdict: review.verdict,
         safety: review.safety,
@@ -426,7 +484,7 @@ async function ingestArticles(articles: GNewsArticle[]): Promise<number> {
 
   // 除外記事は監査・閾値調整用に rejected_articles/{id} へ保存（同じ id で冪等）。
   // クライアントには公開しない（Admin SDK 書き込み・Firebase コンソールで確認する想定）。
-  rejected.forEach(({ article: a, review }) => {
+  rejected.forEach(({ article: a, review, reason }) => {
     const id = newsIdFromUrl(a.url);
     batch.set(db.collection("rejected_articles").doc(id), {
       original_title: a.title,
@@ -434,8 +492,9 @@ async function ingestArticles(articles: GNewsArticle[]): Promise<number> {
       interest_context: review?.topic ?? TOPIC_FALLBACK,
       source_name: a.source?.name ?? "ニュース",
       published_at: Timestamp.fromDate(new Date(a.publishedAt)),
-      // review===null は採点失敗(fail-closed/Vertexブロック)、それ以外は④安全NG。
-      rejected_reason: review === null ? "scoring_failed" : "safety",
+      // scoring_failed=採点失敗(fail-closed/Vertexブロック) / safety=安全NG /
+      // low_quality=教育的価値が低い（品質ゲート）。
+      rejected_reason: reason,
       safety_flags: review?.safety.flagged ?? [],
       scores: review?.scores ?? null,
       reason: review?.reason ?? "",
