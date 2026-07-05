@@ -20,6 +20,7 @@
 | — | Cloud Functions: GNews 実記事取得 + Gemini 子ども向け変換 | ✅ 完了 |
 | — | AI エージェント 3本（パーソナライズ・興味検知・サムネ生成） | ✅ 完了 |
 | — | Firebase Storage + CORS 設定 | ✅ 完了 |
+| — | 記事クイズAI（`generateQuiz`・4択・遅延生成＋キャッシュ） | ✅ 実装・**要デプロイ** |
 
 検証: `flutter analyze` → No issues ／ `flutter test` → All passed。
 

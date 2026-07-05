@@ -46,6 +46,7 @@
 | `fetchNews` / `refreshNewsPool`（記事10件） | 採点10 + 変換≤10 = **≤20回** | 0 |
 | `personalizeArticles`（記事20件） | 書き換え20 + サムネプロンプト≤20 = **≤40回** | **≤20回**（`interest_score < 40` はスキップ） |
 | `updateInterestModel`（閲覧1回） | agent_notes 1回 | 0 |
+| `generateQuiz`（記事詳細を開く） | **記事ごとに初回のみ1回**（2回目以降はキャッシュで0） | 0 |
 
 ### コストを増やす操作（実行前に立ち止まる）
 - **Scheduler の再開** → 毎日 GNews 10 req + Gemini ≤20回が自動で走る

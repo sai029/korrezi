@@ -514,6 +514,157 @@ export const refreshNewsPool = onSchedule(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// クイズ生成（Common View「いっしょに」の記事詳細で出題する4択クイズ）
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * 記事本文から生成する子ども向け4択クイズ（1問）。
+ *
+ * question / choices / explanation はアプリの FuriganaText が解釈する
+ * `〔漢字｜よみ〕` ルビ markup を含みうる（plain でも表示できる）。
+ */
+interface QuizData {
+  question: string;
+  choices: string[]; // 必ず4つ
+  answerIndex: number; // 0〜3
+  explanation: string;
+}
+
+/**
+ * 子ども向け本文から4択クイズを1問生成する（内部ヘルパー）。
+ *
+ * 本文に書かれた事実だけを問う「内容理解クイズ」。失敗・不正な出力のときは null を返し、
+ * 呼び出し側で fail する（未検証のクイズを保存・キャッシュしない）。
+ */
+async function generateOneQuiz(childBodyWithRuby: string): Promise<QuizData | null> {
+  const prompt = [
+    "あなたは小学生向けニュースアプリのクイズ作成AIです。",
+    "次の記事本文を読んだ子ども（6〜10歳）が、内容を理解できたか確かめる4択クイズを1問作ります。",
+    "",
+    "ルール:",
+    "- 質問は本文に書かれている事実だけから作る。本文に無い知識・推測を問わない。",
+    "- 選択肢はちょうど4つ。正解は1つだけ。不正解は本文と矛盾するが、ありそうに見えるものにする。",
+    "- 小学校で習わない漢字には 〔漢字｜よみ〕 の形式でルビを付ける（質問・選択肢・解説すべて）。",
+    "- explanation は「なぜその答えなのか」を本文に沿って1文でやさしく説明する。",
+    "",
+    "出力は必ず次の4キーを持つJSONだけにする（前後に説明文を付けない）:",
+    '- "question": 質問文（子ども向け・ルビ付き）',
+    '- "choices": 選択肢4つの文字列配列（ルビ付き）',
+    '- "answer_index": 正解の番号（0〜3の整数）',
+    '- "explanation": 正解の理由（1文・ルビ付き）',
+    "",
+    "記事本文:",
+    childBodyWithRuby,
+  ].join("\n");
+
+  try {
+    const result = await getGenAI().models.generateContent({
+      model: GEMINI_MODEL,
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: { temperature: 0.4, responseMimeType: "application/json" },
+    });
+    const parsed = JSON.parse(result.text ?? "") as Record<string, unknown>;
+    return normalizeQuiz(parsed);
+  } catch (err) {
+    logger.warn("generateOneQuiz failed", { err: `${err}` });
+    return null;
+  }
+}
+
+/** Gemini / Firestore 由来の緩い型のクイズを検証し、正しければ QuizData を返す。 */
+function normalizeQuiz(raw: unknown): QuizData | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const r = raw as Record<string, unknown>;
+
+  const question = typeof r.question === "string" ? r.question.trim() : "";
+  const explanation =
+    typeof r.explanation === "string" ? r.explanation.trim() : "";
+  const choices = Array.isArray(r.choices)
+    ? r.choices.filter((c): c is string => typeof c === "string" && c.trim().length > 0)
+    : [];
+  // Firestore 保存時は answerIndex、Gemini 出力は answer_index の両方を許容。
+  const idxRaw = r.answerIndex ?? r.answer_index;
+  const answerIndex =
+    typeof idxRaw === "number" ? Math.round(idxRaw) : Number(idxRaw);
+
+  if (
+    question.length === 0 ||
+    choices.length !== 4 ||
+    !Number.isInteger(answerIndex) ||
+    answerIndex < 0 ||
+    answerIndex > 3
+  ) {
+    return null;
+  }
+  return { question, choices, answerIndex, explanation };
+}
+
+/**
+ * 記事の内容理解クイズを取得する。
+ *
+ * 既に news_pool/{newsId}.quiz があればそれを返し（キャッシュ）、無ければ本文から生成して
+ * news_pool に保存してから返す。→ 開かれた記事だけ1回だけ Gemini を呼ぶ（コスト最小）。
+ */
+export const generateQuiz = onCall(
+  { timeoutSeconds: 60, memory: "256MiB" },
+  async (request): Promise<{ quiz: QuizData }> => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "ログインが必要です。");
+    }
+    const newsId = request.data?.newsId;
+    if (typeof newsId !== "string" || newsId.length === 0) {
+      throw new HttpsError("invalid-argument", "newsId が必要です。");
+    }
+
+    const db = getFirestore();
+    const ref = db.collection("news_pool").doc(newsId);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      throw new HttpsError("not-found", "記事が見つかりません。");
+    }
+    const data = snap.data() ?? {};
+
+    // キャッシュヒット: 保存済みの正しいクイズがあればそのまま返す。
+    const cached = normalizeQuiz(data.quiz);
+    if (cached) {
+      return { quiz: cached };
+    }
+
+    const body =
+      typeof data.child_body_with_ruby === "string"
+        ? data.child_body_with_ruby
+        : "";
+    if (body.trim().length === 0) {
+      throw new HttpsError("failed-precondition", "記事本文がありません。");
+    }
+
+    const quiz = await generateOneQuiz(body);
+    if (!quiz) {
+      throw new HttpsError("internal", "クイズの生成に失敗しました。");
+    }
+
+    // 生成できたクイズだけ news_pool にキャッシュ（merge で他フィールドを保持）。
+    await ref.set(
+      {
+        quiz: {
+          question: quiz.question,
+          choices: quiz.choices,
+          answerIndex: quiz.answerIndex,
+          explanation: quiz.explanation,
+          model: GEMINI_MODEL,
+          generated_at: Timestamp.now(),
+        },
+      },
+      { merge: true },
+    );
+
+    logger.info(`generateQuiz created quiz for ${newsId}`);
+    return { quiz };
+  },
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // DISA (Developmental Interest Scoring Algorithm)
 // 論文: Hidi & Renninger (2006), Settles & Meeder / Duolingo (2016),
 //       Ardagelou & Arampatzis (2017), Wu et al. (2021)

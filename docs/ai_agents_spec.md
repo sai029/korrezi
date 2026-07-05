@@ -65,6 +65,7 @@
 | `source_name` | string | ニュースソース名（例: "NHK ニュース"）。2026-07-02 に interest_context から分離 |
 | `char_count` | int | ルビ除去後の実文字数（DISA の T_exp 計算用） |
 | `thumbnail_config` | object | サムネイル設定（下記参照） |
+| `quiz` | object | 記事内容の4択クイズ（`generateQuiz` が初回アクセス時に生成しキャッシュ）。未生成なら存在しない |
 
 #### `thumbnail_config` の構造
 
@@ -204,6 +205,37 @@ const needsThumbnail = (config): boolean => {
 
 > **CORS 対応**: `storage.googleapis.com` 直 URL は Flutter Web (CanvasKit) で CORS ブロックされる。
 > `firebasestorage.googleapis.com/v0/...` URL を使い、GCS バケットに `gsutil cors set` で CORS 設定を適用する。
+
+---
+
+### `generateQuiz`
+
+**概要**: 記事の内容理解を確かめる4択クイズ生成 AI（Common View「いっしょに」の記事詳細で出題）
+
+| 項目 | 値 |
+|---|---|
+| トリガー | `onCall`（記事詳細を開いた時に Flutter から呼び出し） |
+| 認証 | Firebase Auth 必須 |
+| リージョン | `asia-northeast1` |
+| タイムアウト | 60 秒 |
+| メモリ | 256 MiB |
+
+**リクエスト**: `{ "newsId": "<news_pool の doc id>" }`
+**レスポンス**: `{ "quiz": { question, choices[4], answerIndex(0-3), explanation } }`
+
+**処理フロー**:
+
+1. `news_pool/{newsId}` を取得
+2. `quiz` フィールドがあり妥当（choices が4つ・answerIndex が 0-3）ならそれを返す（**キャッシュヒット**）
+3. 無ければ `child_body_with_ruby`（子どもが読む本文）から Gemini で1問生成
+   - 本文に書かれた事実だけを問う（本文に無い知識・推測は問わない）
+   - 選択肢4つ・正解1つ、question/choices/explanation にルビ markup を付与
+   - `temperature: 0.4` / `responseMimeType: application/json`
+4. 妥当性検証（`normalizeQuiz`）を通ったクイズだけ `news_pool/{newsId}.quiz` に `merge: true` で保存し返す
+
+**設計意図（コスト）**: 「開かれた記事だけ・1回だけ」Gemini を呼ぶ遅延生成＋キャッシュ。既存記事にも即対応でき、閲覧されない記事にはコストを払わない。生成失敗・不正出力時は保存せず `HttpsError` を返す（未検証クイズをキャッシュしない）。
+
+**Flutter 側**: `features/common_view/data/quiz_service.dart`（`Quiz` モデル + `QuizService` + `quizProvider` family）。記事詳細（`article_detail_screen.dart`）の本文下に `_QuizSection` を表示。回答すると即時に正誤を色分け（正解=success/誤答=error）し、解説を表示する。
 
 ---
 
