@@ -110,13 +110,26 @@ class FcmService {
     }
   }
 
-  /// data ペイロードから記事ディープリンクを解決して遷移する。
+  /// data ペイロードからディープリンクを解決して遷移する。
+  ///
+  /// 契約（バックエンド index.ts と一致させること）:
+  /// - `{ type: "article", news_id: "<id>" }` → 記事詳細 `/common/article/<id>`
+  /// - `{ type: "feed" }`                     → 子どもフィード `/child`（通知①・新着記事）
+  /// - `{ type: "parent_digest" }`            → 保護者ダッシュボード `/parent`（通知②・日次）
   void _handleDeepLink(RemoteMessage message) {
     final data = message.data;
-    final type = data['type'];
-    final newsId = (data['news_id'] ?? data['newsId'] ?? '').toString();
-    if (type == 'article' && newsId.isNotEmpty) {
-      _ref.read(appRouterProvider).go('/common/article/$newsId');
+    final router = _ref.read(appRouterProvider);
+    switch (data['type']) {
+      case 'article':
+        final newsId = (data['news_id'] ?? data['newsId'] ?? '').toString();
+        if (newsId.isNotEmpty) router.go('/common/article/$newsId');
+        break;
+      case 'feed':
+        router.go('/child');
+        break;
+      case 'parent_digest':
+        router.go('/parent');
+        break;
     }
   }
 

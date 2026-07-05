@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
+import { getMessaging } from "firebase-admin/messaging";
 import { getStorage } from "firebase-admin/storage";
 import { setGlobalOptions } from "firebase-functions/v2";
 import { defineSecret } from "firebase-functions/params";
@@ -412,6 +413,101 @@ async function fetchAccessToken(): Promise<string> {
   }
 }
 
+// ─── Push 通知（FCM） ─────────────────────────────────────────────────────────
+// 送信先はファミリー単位の単一アカウント（uid）配下の端末トークン。現状 parent/child の
+// 端末ロール区別は持たないため、両通知とも同じ uid の全トークンに届く（docs/PENDING_ACTIONS.md）。
+// 通知 data の型はクライアント fcm_service.dart のディープリンク契約と一致させること。
+
+type TokenRefMap = Map<string, FirebaseFirestore.DocumentReference>;
+
+/**
+ * 指定トークン群へ同一メッセージを送る。失効トークンは fcm_tokens から削除する。
+ *
+ * @param tokenRefs token 文字列 → その Firestore ドキュメント参照（失効時の掃除用）
+ * @returns 送信に成功した端末数
+ */
+async function sendToTokens(
+  tokenRefs: TokenRefMap,
+  title: string,
+  body: string,
+  data: Record<string, string>,
+): Promise<number> {
+  const tokens = [...tokenRefs.keys()];
+  if (tokens.length === 0) return 0;
+
+  const messaging = getMessaging();
+  const stale: FirebaseFirestore.DocumentReference[] = [];
+  let sent = 0;
+
+  // multicast は 1 回あたり最大 500 トークン。
+  for (let i = 0; i < tokens.length; i += 500) {
+    const chunk = tokens.slice(i, i + 500);
+    const res = await messaging.sendEachForMulticast({
+      tokens: chunk,
+      notification: { title, body },
+      data,
+      android: { priority: "high" },
+    });
+    res.responses.forEach((r, j) => {
+      if (r.success) {
+        sent++;
+        return;
+      }
+      const code = r.error?.code ?? "";
+      if (
+        code === "messaging/registration-token-not-registered" ||
+        code === "messaging/invalid-registration-token" ||
+        code === "messaging/invalid-argument"
+      ) {
+        const ref = tokenRefs.get(chunk[j]);
+        if (ref) stale.push(ref);
+      }
+    });
+  }
+
+  // 失効トークンを掃除（送信の成否には影響させない）。
+  if (stale.length > 0) {
+    const batch = getFirestore().batch();
+    stale.forEach((ref) => batch.delete(ref));
+    await batch.commit();
+    logger.info(`FCM: removed ${stale.length} stale tokens`);
+  }
+  return sent;
+}
+
+/** 1ユーザーの全端末トークンを取得する（token → docRef）。 */
+async function tokenRefsForUser(uid: string): Promise<TokenRefMap> {
+  const snap = await getFirestore()
+    .collection("users").doc(uid).collection("fcm_tokens").get();
+  const map: TokenRefMap = new Map();
+  snap.docs.forEach((d) => map.set(d.id, d.ref));
+  return map;
+}
+
+/**
+ * 通知①（子ども向け）: 新着記事が入ったら「新しいニュースが届いた」通知を送る。
+ *
+ * news_pool は全ユーザー共通のため、トークンを持つ全ユーザーの端末へ一斉送信する。
+ * ディープリンクはフィード（/child）へ。
+ */
+async function notifyNewArticles(newCount: number): Promise<void> {
+  if (newCount <= 0) return;
+  try {
+    const snap = await getFirestore().collectionGroup("fcm_tokens").get();
+    const map: TokenRefMap = new Map();
+    snap.docs.forEach((d) => map.set(d.id, d.ref));
+    const body = newCount === 1
+      ? "あたらしい記事を1本ついかしたよ。よんでみよう！"
+      : `あたらしい記事を${newCount}本ついかしたよ。よんでみよう！`;
+    const sent = await sendToTokens(map, "新しいニュースがとどいたよ📰", body, {
+      type: "feed",
+    });
+    logger.info(`notifyNewArticles: sent to ${sent} devices (newCount=${newCount})`);
+  } catch (err) {
+    logger.error("notifyNewArticles failed", { err: `${err}` });
+  }
+}
+
 /**
  * 記事群を「採点ゲート → 合格分のみ子ども向け変換 → サムネ生成 → news_pool 書き込み」まで
  * 処理し、実際に書き込んだ件数を返す。fetchNews / refreshNewsPool の共通処理。
@@ -421,7 +517,9 @@ async function fetchAccessToken(): Promise<string> {
  * Common / Child / 詳細すべての画面でそのまま表示される（personalizeArticles は
  * 生成済み URL を検知して再生成をスキップする）。
  */
-async function ingestArticles(articles: GNewsArticle[]): Promise<number> {
+async function ingestArticles(
+  articles: GNewsArticle[],
+): Promise<{ written: number; newCount: number }> {
   // 1. 採点（並列）。安全性を確認できない記事は null。
   const reviews = await Promise.all(articles.map(scoreArticle));
   const scored = articles.map((a, i) => ({ article: a, review: reviews[i] }));
@@ -475,6 +573,17 @@ async function ingestArticles(articles: GNewsArticle[]): Promise<number> {
 
   // 4. WriteBatch で news_pool（合格）と rejected_articles（除外）へ書き込み。
   const db = getFirestore();
+
+  // 通知①のため「今回初めて追加される記事」の数を数える（既存 id は上書き=重複）。
+  const survivorIds = survivors.map(({ article }) => newsIdFromUrl(article.url));
+  let newCount = 0;
+  if (survivorIds.length > 0) {
+    const existing = await db.getAll(
+      ...survivorIds.map((id) => db.collection("news_pool").doc(id)),
+    );
+    newCount = existing.filter((s) => !s.exists).length;
+  }
+
   const batch = db.batch();
 
   survivors.forEach(({ article: a, review }, i) => {
@@ -540,7 +649,7 @@ async function ingestArticles(articles: GNewsArticle[]): Promise<number> {
   });
 
   await batch.commit();
-  return survivors.length;
+  return { written: survivors.length, newCount };
 }
 
 /**
@@ -569,9 +678,11 @@ export const fetchNews = onCall(
       return { count: 0 };
     }
 
-    const count = await ingestArticles(articles);
-    logger.info(`fetchNews wrote ${count} articles for ${uid}`);
-    return { count };
+    // 手動取得は「今アプリを使っている人」の操作なので新着通知は出さない
+    //（通知①はスケジュールの refreshNewsPool 側でのみ送る）。
+    const { written } = await ingestArticles(articles);
+    logger.info(`fetchNews wrote ${written} articles for ${uid}`);
+    return { count: written };
   },
 );
 
@@ -602,8 +713,61 @@ export const refreshNewsPool = onSchedule(
       return;
     }
 
-    const count = await ingestArticles(articles);
-    logger.info(`refreshNewsPool wrote ${count} articles to news_pool`);
+    const { written, newCount } = await ingestArticles(articles);
+    logger.info(
+      `refreshNewsPool wrote ${written} articles (${newCount} new) to news_pool`,
+    );
+    // 通知①（子ども向け）: 新着があれば全端末へ「新しいニュースが届いた」通知。
+    await notifyNewArticles(newCount);
+  },
+);
+
+/**
+ * 通知②（保護者向け）: 毎日 18:00(JST)、その日にお子さんがアプリを使った家庭へ
+ * 「今日読んだ記事を見てみましょう」というダイジェスト通知を送る（帰宅途中の閲覧想定）。
+ *
+ * 「本日利用」の判定は users/{uid}.last_active_at（閲覧のたびに updateInterestModel が刻む）。
+ * ディープリンクは保護者ダッシュボード（/parent）へ。
+ */
+export const sendParentDigest = onSchedule(
+  {
+    schedule: "0 18 * * *",
+    timeZone: "Asia/Tokyo",
+    timeoutSeconds: 120,
+    memory: "256MiB",
+  },
+  async () => {
+    const db = getFirestore();
+
+    // JST 今日の 0:00 を UTC の Timestamp として求める（関数は UTC で動くため補正）。
+    const jstNow = new Date(Date.now() + 9 * 3600 * 1000);
+    const startUtcMs =
+      Date.UTC(jstNow.getUTCFullYear(), jstNow.getUTCMonth(), jstNow.getUTCDate()) -
+      9 * 3600 * 1000;
+    const startOfTodayJST = Timestamp.fromMillis(startUtcMs);
+
+    const activeSnap = await db
+      .collection("users")
+      .where("last_active_at", ">=", startOfTodayJST)
+      .get();
+
+    let families = 0;
+    let totalSent = 0;
+    for (const userDoc of activeSnap.docs) {
+      const map = await tokenRefsForUser(userDoc.id);
+      if (map.size === 0) continue;
+      const sent = await sendToTokens(
+        map,
+        "今日のまなびレポート📚",
+        "お子さんが今日読んだ記事と、興味の広がりをのぞいてみましょう。",
+        { type: "parent_digest" },
+      );
+      families++;
+      totalSent += sent;
+    }
+    logger.info(
+      `sendParentDigest: sent to ${totalSent} devices across ${families} families`,
+    );
   },
 );
 
@@ -1284,6 +1448,14 @@ export const updateInterestModel = onCall(
       );
     }
 
+    const db = getFirestore();
+    // 保護者ダイジェスト（sendParentDigest）用に「本日利用」を記録する。
+    // 短時間のバウンスでも「アプリを使った」ことに変わりはないため、除外判定より前に刻む。
+    await db.collection("users").doc(uid).set(
+      { last_active_at: Timestamp.now() },
+      { merge: true },
+    );
+
     // ── 早期バウンス除外（Firestore 読み取り前の軽量チェック）─────────────────
     // T_EXP_FALLBACK_SEC × 0.2 = 9秒未満は記事の長さに関わらず確実にバウンス。
     if (viewDurationSeconds < T_EXP_FALLBACK_SEC * 0.2) {
@@ -1291,7 +1463,6 @@ export const updateInterestModel = onCall(
       return;
     }
 
-    const db = getFirestore();
     const profileRef = db
       .collection("users")
       .doc(uid)
