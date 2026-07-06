@@ -5,7 +5,9 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../shared/widgets/bouncy_tap.dart';
 import '../../../shared/widgets/dev_menu_button.dart';
+import '../../common_view/application/common_view_provider.dart';
 import '../application/parent_dashboard_provider.dart';
+import 'widgets/reading_lamp.dart';
 
 /// Parent Mode (スマホ・縦) — 会話のきっかけダッシュボード。
 ///
@@ -31,24 +33,36 @@ class ParentDashboardScreen extends ConsumerWidget {
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('読み込みに失敗しました: $e')),
-        data: (data) => ListView(
-          padding: const EdgeInsets.all(AppSpacing.space4),
-          children: [
-            const _Masthead(),
-            const SizedBox(height: AppSpacing.space5),
-            const _SectionHeader('最近わきあがっている好奇心'),
-            _InterestCloud(interests: data.profile.currentInterests),
-            const SizedBox(height: AppSpacing.space6),
-            const _SectionHeader('親子トークのきっかけ'),
-            ...data.talkPrompts.map((p) => _TalkPromptCard(prompt: p)),
-            const SizedBox(height: AppSpacing.space6),
-            const _SectionHeader('きょうの記事'),
-            const _ReadLegend(),
-            const SizedBox(height: AppSpacing.space3),
-            for (final pa in data.articles) _ArticleCard(item: pa),
-            const SizedBox(height: AppSpacing.space5),
-          ],
-        ),
+        data: (data) {
+          // 既読/未読は子ども画面と同じ源（childFeedProvider 由来）で突合する。
+          // 子どもが記事を読むと即座にここへ連動する。
+          final viewed = ref.watch(viewedNewsIdsProvider);
+          return ListView(
+            padding: const EdgeInsets.all(AppSpacing.space4),
+            children: [
+              const _Masthead(),
+              const SizedBox(height: AppSpacing.space5),
+              ReadingLampHero(
+                ratio: data.readRatio(viewed),
+                readCount: data.readCount(viewed),
+                totalCount: data.totalCount,
+              ),
+              const SizedBox(height: AppSpacing.space6),
+              const _SectionHeader('最近わきあがっている好奇心'),
+              _InterestCloud(interests: data.profile.currentInterests),
+              const SizedBox(height: AppSpacing.space6),
+              const _SectionHeader('親子トークのきっかけ'),
+              ...data.talkPrompts.map((p) => _TalkPromptCard(prompt: p)),
+              const SizedBox(height: AppSpacing.space6),
+              const _SectionHeader('きょうの記事'),
+              const _ReadLegend(),
+              const SizedBox(height: AppSpacing.space3),
+              for (final pa in data.articles)
+                _ArticleCard(item: pa, isRead: viewed.contains(pa.newsId)),
+              const SizedBox(height: AppSpacing.space5),
+            ],
+          );
+        },
       ),
     );
   }
@@ -92,13 +106,6 @@ class _Masthead extends StatelessWidget {
                 ),
               ),
             ],
-          ),
-          const SizedBox(height: AppSpacing.space2),
-          Text(
-            'きょう、子どものあたまの中をのぞいてみよう。',
-            style: textTheme.bodyMedium?.copyWith(
-              color: AppColors.brandPrimaryInk,
-            ),
           ),
         ],
       ),
@@ -306,15 +313,18 @@ class _TalkPromptCard extends StatelessWidget {
 /// 記事カード。ランキング風ナンバー ＋ カテゴリ・キッカー ＋ 既読/未読スタンプ ＋
 /// 「子どもの記事を見にいく」ボタン。calm content 原則: 要約本文は body。
 class _ArticleCard extends ConsumerWidget {
-  const _ArticleCard({required this.item});
+  const _ArticleCard({required this.item, required this.isRead});
   final ParentArticle item;
+
+  /// 子どもがこの記事を読んだか（viewedNewsIdsProvider と突合済み）。
+  final bool isRead;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final textTheme = Theme.of(context).textTheme;
     final article = item.article;
     // 子どもが読んだ記事を親に見にいってほしいので、既読を強調し未読を落ち着かせる。
-    final dim = !item.isRead;
+    final dim = !isRead;
 
     return Opacity(
       opacity: dim ? 0.72 : 1.0,
@@ -351,7 +361,7 @@ class _ArticleCard extends ConsumerWidget {
                     ),
                   ),
                 ),
-                _ReadStamp(isRead: item.isRead),
+                _ReadStamp(isRead: isRead),
               ],
             ),
             const SizedBox(height: AppSpacing.space2),
