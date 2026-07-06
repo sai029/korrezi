@@ -9,7 +9,7 @@
 | # | 対象 | 内容 | コマンド |
 |---|---|---|---|
 | ~~D1~~ | `personalizeArticles` | ~~Phase③ 再生成バグ修正（`44644f9`）~~ → **2026-07-04 デプロイ済み**。 | ✅ 完了 |
-| **D2** | `refreshNewsPool` / `sendParentDigest`（新規）/ `updateInterestModel` / `fetchNews` | **P3 送信側**（commit `66af1fa`）。通知①新着（refreshNewsPool 内）・通知②日次ダイジェスト（新スケジュール関数 sendParentDigest 18時JST）・利用刻印（updateInterestModel）。**未デプロイ**。 | `firebase deploy --only functions` |
+| ~~D2~~ | `refreshNewsPool` / `sendParentDigest`（新規）/ `updateInterestModel` / `fetchNews` | ~~**P3 送信側**（commit `66af1fa`）。通知①新着・通知②日次ダイジェスト（sendParentDigest 18時JST）・利用刻印。~~ → **2026-07-06 デプロイ済み**（main をマージし quiz+安全フィルタと統合したうえで `--only functions` 一括デプロイ。`sendParentDigest` 新規作成、Cloud Scheduler ジョブ生成済み）。 | ✅ 完了 |
 
 > `sendParentDigest` は**新規のスケジュール関数**なので `functions:sendParentDigest` 単体でも可だが、
 > 既存関数の変更（refreshNewsPool/updateInterestModel/fetchNews）も含むため `--only functions` 一括が確実。
@@ -49,12 +49,25 @@ autonomous には進めず、方針確認が必要なもの。
   送信時に絞り込む拡張が必要。要プロダクト判断。
 - **静音時間帯**: 通知①は朝6時発火なので実害小。将来、夜間抑制や頻度制御を入れるかは未検討。
 
-### 要デプロイ（D2）
-`firebase deploy --only functions`。`sendParentDigest` は新規スケジュール関数のため
-初回デプロイで Cloud Scheduler ジョブが作成される。
+### 要デプロイ（D2）→ ✅ 2026-07-06 デプロイ済み
+`firebase deploy --only functions` を **main マージ後の統合コード**で実行。`sendParentDigest`
+は新規スケジュール関数として作成され、Cloud Scheduler ジョブ（毎日18時JST）が生成された。
+generateQuiz（main 側）も残存し、削除提案は出ていない。
 
 ### 要許可・別対応
-- **iOS**: APNs 証明書/キー設定が必要（現状 iOS 未構成）。
+- **iOS（ネイティブ設定は 2026-07-06 に準備済み・要 Mac/Apple 作業）**:
+  - ✅ 済: Firebase iOS アプリ登録・`GoogleService-Info.plist`・`firebase_options.dart` ios・
+    Google Sign-in URL スキーム・`Runner.entitlements`(`aps-environment=development`)・
+    3ビルド設定への `CODE_SIGN_ENTITLEMENTS` 配線・Info.plist `UIBackgroundModes`(remote-notification/fetch)。
+  - ⛔ 未（Windows では不可、要 Mac/Apple Developer）:
+    1. **APNs 認証キー(.p8)** を Apple Developer で作成 → Firebase Console →
+       プロジェクト設定 → Cloud Messaging → Apple アプリ構成にアップロード（**これが無いと iOS 配信不可**）。
+    2. Xcode で `ios/Runner.xcworkspace` を開き、Signing & Capabilities に
+       **Push Notifications** と **Background Modes → Remote notifications** が出ているか確認
+       （出ない場合は「+ Capability」で追加＝pbxproj/entitlements を再同期）。自動署名の team は設定済み。
+    3. Mac で `pod install` → **実機**（Simulator 不可）でビルドし、通知受信を確認。
+    4. リリース/TestFlight 時は entitlements の `aps-environment` を `production` にする
+       （開発実機テストは `development` のまま）。
 - **Web**: `firebase-messaging-sw.js`（Service Worker）+ VAPID 公開鍵が必要。現状は `kIsWeb` で
   スキップ。Web でも通知するなら別途対応。
 - **実機確認**: Android 実機で3系統（foreground / background / 終了状態）の通知タップ→遷移を確認。
@@ -66,5 +79,5 @@ autonomous には進めず、方針確認が必要なもの。
 - Phase③ 実装（`5ad9a96`, デプロイ済み）
 - Phase③ 再生成バグ修正（`44644f9`, 2026-07-04 デプロイ済み）
 - P3 FCM クライアント実装（`8c1f1e5`）: 受信・トークン保存・ディープリンク遷移・Android 権限
-- P3 FCM 送信側実装（`66af1fa`）: 子ども向け新着通知・保護者向け日次ダイジェスト（**未デプロイ D2**）
+- P3 FCM 送信側実装（`66af1fa`）: 子ども向け新着通知・保護者向け日次ダイジェスト（**2026-07-06 デプロイ済み D2**）
 - QA ゲート全項目 PASS（analyze / test / design / tsc）
