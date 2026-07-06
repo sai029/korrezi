@@ -80,6 +80,12 @@ https://console.cloud.google.com/cloudscheduler?project=ai-discovery-app-b3a9d
 - `news_pool` **のみ**更新（`personalized_feed` は更新しない）
 - ユーザーコンテキストが無いため特定ユーザーへの書き込みは行わない
 
+#### `generateQuiz` — 記事クイズ生成 (onCall)
+- リージョン: `asia-northeast1` / timeout: 60s / memory: 256MiB / 認証必須
+- 記事詳細（Common View「いっしょに」）を開いた時に `newsId` を渡して呼び出す
+- `news_pool/{newsId}.quiz` があればキャッシュを返し、無ければ本文から Gemini で
+  4択クイズを1問生成して `news_pool` に保存（遅延生成＋キャッシュ）。詳細は [`ai_agents_spec.md`](ai_agents_spec.md)
+
 #### `toChildFriendly(article)` — Gemini 変換
 ```
 入力: GNewsArticle { title, description, content, url, image, publishedAt, source }
@@ -116,13 +122,17 @@ Gemini プロンプト (gemini-2.5-flash):
 | `interest_context` | string | 採点ゲートが分類したトピック（固定タクソノミー12分類。例: "科学"）。2026-07-02 以前はソース名が入っていた |
 | `source_name` | string | 出典名（例: "NHK ニュース"） |
 | `quality_review` | map | 採点ゲートの結果 (`safety`/`scores`/`topic`/`reason` 等)。詳細は [`CONTENT_QUALITY_GATE.md`](CONTENT_QUALITY_GATE.md) |
+| `quiz` | map | 記事内容の4択クイズ (`question`/`choices`/`answerIndex`/`explanation`)。`generateQuiz` が初回アクセス時に生成しキャッシュ。未生成なら不在。詳細は [`ai_agents_spec.md`](ai_agents_spec.md) |
 
 書き込み: Cloud Functions (Admin SDK) のみ。クライアントからは読み取り専用。
 取り込みは GNews 取得 → **採点ゲート (`scoreArticle`)** → 合格分のみ `toChildFriendly` 変換 → 書き込み。
-安全 NG は除外し news_pool に載せない。品質3軸は当面「記録のみ」（除外には未使用）。
+除外は3種: **安全 NG**（`safety_flags` が立った時のみ＋Vertex `safetySettings` の応答ブロック）・
+**採点失敗**（fail-closed）・**教育的価値が低い**（`MIN_EDUCATIONAL_VALUE=2` 未満＝ゴシップ対策）。
+思考フック・信頼性は当面「記録のみ」。詳細は [`CONTENT_QUALITY_GATE.md`](CONTENT_QUALITY_GATE.md)。
 
 #### `/rejected_articles/{newsId}` — 採点ゲートで除外した記事（監査用）
-落とした記事（安全 NG / 採点失敗）を `rejected_reason`・`safety_flags`・`scores`・`reason` 付きで保存。
+落とした記事（`rejected_reason`: `safety` / `scoring_failed` / `low_quality`）を
+`safety_flags`・`scores`・`reason` 付きで保存。
 **クライアント非公開**（`firestore.rules` で deny、Admin SDK のみ書き込み）。詳細は [`CONTENT_QUALITY_GATE.md`](CONTENT_QUALITY_GATE.md)。
 
 #### `/users/{uid}/personalized_feed/{newsId}` — ユーザー別
