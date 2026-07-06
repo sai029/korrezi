@@ -7,13 +7,16 @@ import '../data/parent_dashboard_repository.dart';
 
 /// 親画面で1記事を表すビューモデル。
 ///
-/// news_pool の記事本体に、子どもの閲覧状況（[isRead]）と、子ども画面へ
-/// 遷移するための並び順 index（[feedIndex]）を付与したもの。
+/// news_pool の記事本体に、子ども画面へ遷移するための並び順 index（[feedIndex]）
+/// を付与したもの。
+///
+/// 既読/未読は「1つの真実の源」に統一するため、この VM には持たせず、
+/// 表示時に [viewedNewsIdsProvider]（＝childFeedProvider 由来）と突合して求める。
+/// こうすることで、子どもが記事を読むと親画面の既読表示も即座に連動する。
 class ParentArticle {
   const ParentArticle({
     required this.newsId,
     required this.article,
-    required this.isRead,
     required this.feedIndex,
   });
 
@@ -22,9 +25,6 @@ class ParentArticle {
 
   /// 記事本体（タイトル・保護者向け要約など）。
   final NewsPool article;
-
-  /// 子どもがこの記事を読んだか（personalized_feed.is_viewed）。
-  final bool isRead;
 
   /// Common View（子どもが読む画面）での記事 index。遷移時に使う。
   final int feedIndex;
@@ -44,8 +44,20 @@ class ParentDashboardData {
   /// AI生成の親子トークプロンプト。
   final List<String> talkPrompts;
 
-  /// 当日の記事（既読/未読・遷移 index を付与済み）。
+  /// 当日の記事（遷移 index 付き）。
   final List<ParentArticle> articles;
+
+  /// 当日記事の総数。
+  int get totalCount => articles.length;
+
+  /// 当日記事のうち子どもが読んだ件数（[viewed] は viewedNewsIdsProvider の集合）。
+  int readCount(Set<String> viewed) =>
+      articles.where((a) => viewed.contains(a.newsId)).length;
+
+  /// 当日の既読率(0.0–1.0)。「きょうの よみの木」の生い茂り具合を決める指標。
+  /// 記事0件の日は 0（＝種・芽の状態）。
+  double readRatio(Set<String> viewed) =>
+      totalCount == 0 ? 0 : readCount(viewed) / totalCount;
 }
 
 /// Parent Dashboard の状態管理。
@@ -64,18 +76,26 @@ class ParentDashboardNotifier extends AsyncNotifier<ParentDashboardData> {
     try {
       final userId = ref.watch(currentUserIdProvider);
       final repo = ref.watch(parentDashboardRepositoryProvider);
-      final profile =
-          await repo.fetchInterestProfile(userId) ?? _sample.profile;
+
+      // 興味プロファイルの取得・パース失敗（例: ai_agent_metadata 未書き込み）で
+      // 記事一覧まで巻き添えにしてサンプルへ落ちないよう、ここで隔離する。
+      InterestProfile profile;
+      try {
+        profile = await repo.fetchInterestProfile(userId) ?? _sample.profile;
+      } catch (_) {
+        profile = _sample.profile;
+      }
+
       final fetched = await repo.fetchTodaysArticles();
       if (fetched.isEmpty) return _sample.copyForArticles(profile);
 
-      final viewed = await repo.fetchViewedNewsIds(userId);
+      // 既読/未読は viewedNewsIdsProvider（childFeedProvider 由来）で表示時に
+      // 突合するため、ここでは付与しない。
       final articles = [
         for (final (index, row) in fetched.indexed)
           ParentArticle(
             newsId: row.newsId,
             article: row.article,
-            isRead: viewed.contains(row.newsId),
             feedIndex: index,
           ),
       ];
@@ -148,7 +168,6 @@ final _sample = ParentDashboardData(
   articles: [
     ParentArticle(
       newsId: 'news_env_rule',
-      isRead: true,
       feedIndex: 0,
       article: NewsPool(
         originalTitle: 'Global Environmental Regulations Strengthened',
@@ -160,7 +179,6 @@ final _sample = ParentDashboardData(
     ),
     ParentArticle(
       newsId: 'news_space_food',
-      isRead: false,
       feedIndex: 1,
       article: NewsPool(
         originalTitle: 'Life Aboard the Space Station',
