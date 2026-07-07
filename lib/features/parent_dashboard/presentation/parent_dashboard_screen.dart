@@ -15,8 +15,6 @@ import 'widgets/reading_lamp.dart';
 /// 太い濃紺ボーダー / 影なしフラット / ランキング風ナンバー / ハンコ風スタンプ。
 ///
 /// - Masthead（題字バナー）
-/// - Interest Cloud（最近の関心）
-/// - 親子トークプロンプト（AI生成）
 /// - 当日記事: 子どもの既読/未読 ＋ 子ども記事へのジャンプボタン
 class ParentDashboardScreen extends ConsumerWidget {
   const ParentDashboardScreen({super.key});
@@ -47,12 +45,6 @@ class ParentDashboardScreen extends ConsumerWidget {
                 readCount: data.readCount(viewed),
                 totalCount: data.totalCount,
               ),
-              const SizedBox(height: AppSpacing.space6),
-              const _SectionHeader('最近わきあがっている好奇心'),
-              _InterestCloud(interests: data.profile.currentInterests),
-              const SizedBox(height: AppSpacing.space6),
-              const _SectionHeader('親子トークのきっかけ'),
-              ...data.talkPrompts.map((p) => _TalkPromptCard(prompt: p)),
               const SizedBox(height: AppSpacing.space6),
               const _SectionHeader('きょうの記事'),
               const _ReadLegend(),
@@ -208,103 +200,6 @@ class _ReadStamp extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// 興味スコアを角ばったステッカー Chip 化（スコアが高いほど大きく・アンバー寄り）。
-class _InterestCloud extends StatelessWidget {
-  const _InterestCloud({required this.interests});
-  final Map<String, int> interests;
-
-  @override
-  Widget build(BuildContext context) {
-    final entries = interests.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-
-    return Wrap(
-      spacing: AppSpacing.space2,
-      runSpacing: AppSpacing.space2,
-      children: [
-        for (final e in entries)
-          BouncyTap(
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.space3,
-                vertical: AppSpacing.space1 + 2,
-              ),
-              decoration: BoxDecoration(
-                color: Color.lerp(
-                  AppColors.surface,
-                  AppColors.accent.withValues(alpha: 0.55),
-                  e.value / 100,
-                ),
-                borderRadius: AppRadii.sm,
-                border: Border.all(
-                  color: AppColors.ink900,
-                  width: AppBorder.thin,
-                ),
-              ),
-              child: Text(
-                '#${e.key}',
-                style: TextStyle(
-                  fontSize: AppType.sizeCaption + e.value * 0.10,
-                  fontWeight: FontWeight.w900,
-                  color: AppColors.ink900,
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-/// 会話プロンプトカード。左に赤い極太バー＋引用符で「見出し」感を出す。
-class _TalkPromptCard extends StatelessWidget {
-  const _TalkPromptCard({required this.prompt});
-  final String prompt;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: AppSpacing.space3),
-      // 非均一ボーダー（左だけ太い）には borderRadius を付けられないため角は四角。
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        border: Border(
-          left: BorderSide(color: AppColors.brandPrimary, width: 6),
-          top: AppBorder.sideThin,
-          right: AppBorder.sideThin,
-          bottom: AppBorder.sideThin,
-        ),
-      ),
-      padding: const EdgeInsets.all(AppSpacing.space4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '“',
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-              color: AppColors.brandPrimary,
-              height: 1.0,
-            ),
-          ),
-          const SizedBox(width: AppSpacing.space2),
-          Expanded(
-            child: Text(prompt, style: Theme.of(context).textTheme.bodyMedium),
-          ),
-          BouncyTap(
-            onTap: () {
-              // TODO: お気に入り保存 / 後で話す リスト追加。
-            },
-            child: const Icon(
-              Icons.push_pin_outlined,
-              color: AppColors.brandPrimary,
-            ),
-          ),
-        ],
       ),
     );
   }
