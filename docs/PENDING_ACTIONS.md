@@ -10,7 +10,7 @@
 |---|---|---|---|
 | ~~D1~~ | `personalizeArticles` | ~~Phase③ 再生成バグ修正（`44644f9`）~~ → **2026-07-04 デプロイ済み**。 | ✅ 完了 |
 | ~~D2~~ | `refreshNewsPool` / `sendParentDigest`（新規）/ `updateInterestModel` / `fetchNews` | ~~**P3 送信側**（commit `66af1fa`）。通知①新着・通知②日次ダイジェスト（sendParentDigest 18時JST）・利用刻印。~~ → **2026-07-06 デプロイ済み**（main をマージし quiz+安全フィルタと統合したうえで `--only functions` 一括デプロイ。`sendParentDigest` 新規作成、Cloud Scheduler ジョブ生成済み）。 | ✅ 完了 |
-| D3 | `refreshNewsPool`（内 `notifyNewArticles`）/ `sendParentDigest` | **端末ロール別の通知絞り込み**（ブランチ `feat/device-role-onboarding`）。`fcm_tokens.role` で通知①は parent 端末を除外・通知②は parent 端末のみ。main マージ後に `firebase deploy --only functions`。クライアント側（オンボーディング・role 書き込み）はデプロイ不要（アプリ更新のみ）。 | `firebase deploy --only functions` |
+| ~~D3~~ | `refreshNewsPool`（内 `notifyNewArticles`）/ `sendParentDigest` | ~~**端末ロール別の通知絞り込み**（ブランチ `feat/device-role-onboarding`）。`fcm_tokens.role` で通知①は parent 端末を除外・通知②は parent 端末のみ。~~ → **2026-07-07 デプロイ済み**（`feat/device-role-onboarding` から直接 `--only functions` 一括デプロイ。7関数 Successful。**ブランチは main 未マージ**なので後でマージ要）。クライアント側（オンボーディング・role 書き込み）はアプリ更新のみで反映。 | ✅ 完了 |
 
 > `sendParentDigest` は**新規のスケジュール関数**なので `functions:sendParentDigest` 単体でも可だが、
 > 既存関数の変更（refreshNewsPool/updateInterestModel/fetchNews）も含むため `--only functions` 一括が確実。
