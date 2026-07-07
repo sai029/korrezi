@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../core/auth/auth_service.dart';
+import '../../core/device/device_role.dart';
 import '../../core/firebase/firebase_providers.dart';
 import '../../core/firebase/firestore_seeder.dart';
 import '../../core/firebase/news_fetch_service.dart';
@@ -46,6 +47,7 @@ class AppDrawer extends ConsumerWidget {
           _tile(context, current, '/parent', Icons.favorite,
               'Parent Dashboard', 'スマホ・縦 / 会話のきっかけ'),
           const Divider(),
+          _roleTile(context, ref),
           ListTile(
             leading: const Icon(Icons.cloud_upload_outlined),
             title: const Text('サンプルデータ投入 (dev)'),
@@ -62,6 +64,55 @@ class AppDrawer extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  /// この端末の役割（保護者/お子さん）の表示と変更。
+  Widget _roleTile(BuildContext context, WidgetRef ref) {
+    final role = ref.watch(deviceRoleProvider);
+    if (role == null) return const SizedBox.shrink();
+    final label = role == DeviceRole.parent ? '保護者用' : 'お子さん用';
+    return ListTile(
+      leading: const Icon(Icons.devices_outlined),
+      title: const Text('この端末の役割'),
+      subtitle: Text(label),
+      onTap: () => _changeRole(context, ref, role),
+    );
+  }
+
+  Future<void> _changeRole(
+    BuildContext context,
+    WidgetRef ref,
+    DeviceRole current,
+  ) async {
+    final selected = await showDialog<DeviceRole>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('この端末の役割'),
+        children: [
+          for (final role in DeviceRole.values)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, role),
+              child: Row(
+                children: [
+                  Icon(
+                    role == current
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_unchecked,
+                  ),
+                  const SizedBox(width: 12),
+                  Text(role == DeviceRole.parent ? '保護者用' : 'お子さん用'),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+    if (selected == null || selected == current) return;
+    if (!context.mounted) return;
+    await ref.read(deviceRoleProvider.notifier).setRole(selected);
+    if (!context.mounted) return;
+    Navigator.pop(context); // ドロワーを閉じる
+    context.go(selected.homePath);
   }
 
   Widget _authTile(BuildContext context, WidgetRef ref) {

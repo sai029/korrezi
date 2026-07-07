@@ -5,6 +5,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../device/device_role.dart';
 import '../firebase/firebase_providers.dart';
 import '../router/app_router.dart';
 
@@ -83,28 +84,36 @@ class FcmService {
     if (token != null) _saveToken(token);
   }
 
+  /// 端末の役割（保護者/お子さん）が変わったときに呼ぶ。
+  /// 保存済みトークンの `role` を新しい役割で書き直し、通知の出し分けに反映する。
+  void onRoleChanged() {
+    final token = _lastToken;
+    if (token != null) _saveToken(token);
+  }
+
   /// トークンを `users/{uid}/fcm_tokens/{token}` に保存する。
   ///
   /// トークン単位のドキュメントにすることで、複数端末・失効トークンの管理を
-  /// バックエンド（送信側）が扱いやすくする。
+  /// バックエンド（送信側）が扱いやすくする。`role`（parent/child）は通知の
+  /// 出し分けに使う（未設定の間は書き込まない）。
   Future<void> _saveToken(String token) async {
     final uid = _ref.read(currentUserIdProvider);
     if (uid == devUserId) return; // 未サインインでは保存しない
     try {
+      final data = <String, Object>{
+        'token': token,
+        'platform': defaultTargetPlatform.name,
+        'updated_at': FieldValue.serverTimestamp(),
+      };
+      final role = _ref.read(deviceRoleProvider)?.name;
+      if (role != null) data['role'] = role;
       await _ref
           .read(firestoreProvider)
           .collection('users')
           .doc(uid)
           .collection('fcm_tokens')
           .doc(token)
-          .set(
-        {
-          'token': token,
-          'platform': defaultTargetPlatform.name,
-          'updated_at': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
+          .set(data, SetOptions(merge: true));
     } catch (e) {
       debugPrint('FCM token save failed: $e');
     }

@@ -523,12 +523,23 @@ async function sendToTokens(
   return sent;
 }
 
-/** 1ユーザーの全端末トークンを取得する（token → docRef）。 */
-async function tokenRefsForUser(uid: string): Promise<TokenRefMap> {
+/**
+ * 1ユーザーの端末トークンを取得する（token → docRef）。
+ *
+ * @param roleFilter 指定すると、その役割（parent/child）のトークンだけに絞る。
+ *   端末は fcm_tokens ドキュメントに `role` を持つ（クライアントがオンボーディングで設定）。
+ */
+async function tokenRefsForUser(
+  uid: string,
+  roleFilter?: (role: string | undefined) => boolean,
+): Promise<TokenRefMap> {
   const snap = await getFirestore()
     .collection("users").doc(uid).collection("fcm_tokens").get();
   const map: TokenRefMap = new Map();
-  snap.docs.forEach((d) => map.set(d.id, d.ref));
+  snap.docs.forEach((d) => {
+    if (roleFilter && !roleFilter((d.data() as {role?: string}).role)) return;
+    map.set(d.id, d.ref);
+  });
   return map;
 }
 
@@ -536,14 +547,19 @@ async function tokenRefsForUser(uid: string): Promise<TokenRefMap> {
  * 通知①（子ども向け）: 新着記事が入ったら「新しいニュースが届いた」通知を送る。
  *
  * news_pool は全ユーザー共通のため、トークンを持つ全ユーザーの端末へ一斉送信する。
- * ディープリンクはフィード（/child）へ。
+ * ただし**保護者用端末（role==="parent"）は除外**し、お子さん用と役割未設定
+ * （旧クライアント）の端末にのみ送る。ディープリンクはフィード（/child）へ。
  */
 async function notifyNewArticles(newCount: number): Promise<void> {
   if (newCount <= 0) return;
   try {
     const snap = await getFirestore().collectionGroup("fcm_tokens").get();
     const map: TokenRefMap = new Map();
-    snap.docs.forEach((d) => map.set(d.id, d.ref));
+    snap.docs.forEach((d) => {
+      const role = (d.data() as {role?: string}).role;
+      if (role === "parent") return; // 保護者端末には子ども向け新着を送らない
+      map.set(d.id, d.ref);
+    });
     const body = newCount === 1
       ? "あたらしい記事を1本ついかしたよ。よんでみよう！"
       : `あたらしい記事を${newCount}本ついかしたよ。よんでみよう！`;
@@ -813,7 +829,11 @@ export const sendParentDigest = onSchedule(
     let families = 0;
     let totalSent = 0;
     for (const userDoc of activeSnap.docs) {
-      const map = await tokenRefsForUser(userDoc.id);
+      // 保護者用端末のみへ送る（お子さん用端末には日次ダイジェストを送らない）。
+      const map = await tokenRefsForUser(
+        userDoc.id,
+        (role) => role === "parent",
+      );
       if (map.size === 0) continue;
       const sent = await sendToTokens(
         map,
