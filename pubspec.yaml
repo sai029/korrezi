@@ -85,6 +85,8 @@ flutter:
   # サムネイル抽象化レイヤー用: カテゴリ別イラスト (thumbnail_config.base_asset の配置先)
   assets:
     - assets/images/categories/
+    # トピック別テンプレ画像（Imagen 生成・生成失敗時のフォールバック）
+    - assets/thumbnails/templates/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

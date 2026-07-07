@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
+import { getMessaging } from "firebase-admin/messaging";
 import { getStorage } from "firebase-admin/storage";
 import { setGlobalOptions } from "firebase-functions/v2";
 import { defineSecret } from "firebase-functions/params";
@@ -22,6 +23,28 @@ const GNEWS_API_KEY = defineSecret("GNEWS_API_KEY");
 // API キーは不要。モデルが広く利用可能な us-central1 を既定にする。
 const VERTEX_LOCATION = "us-central1";
 const GEMINI_MODEL = "gemini-2.5-flash";
+
+// サムネのアートスタイル（全生成で共通）。
+// ターゲットは中学受験を意識する中高学年（10〜12歳）。幼児向けの原色ポップ・
+// デフォルメ絵は「ダサい＝自分向けではない」と判断されるため避け、音楽 MV／
+// スタイリッシュなアニメ OP のようなエディトリアル線画＋限定アクセントカラーで
+// 「知的でクール・少し背伸び」した印象にする。Imagen は英語プロンプトの品質が
+// 高いため英語で指定する。scene 記述の後ろに常にこの1文を付けてスタイルを固定する。
+const THUMBNAIL_STYLE =
+  "Modern, stylish flat editorial illustration with a fresh, bright and airy mood. " +
+  "A light, clean background with a curated palette of two or three trendy accent colours " +
+  "(for example soft coral, teal, warm yellow or lavender) — colourful and upbeat but tasteful, " +
+  "never garish. Confident, elegant linework and simple geometric shapes with a light sense of " +
+  "motion; think a cool contemporary magazine spread or a sleek app illustration, NOT a dark " +
+  "music video. Sophisticated yet friendly and optimistic — aimed at smart pre-teens aged 10 to 12, " +
+  "never childish, and never gloomy, eerie or scary. Generous negative space. " +
+  "Keep the main subject in the upper two-thirds and leave the lower third calmer and " +
+  "less busy so an app can overlay a title there. " +
+  "Absolutely no text, no letters, no numbers, no words anywhere in the image. " +
+  "Avoid: dark / gloomy / eerie atmosphere, heavy black backgrounds, harsh noir shadows, " +
+  "loud saturated primary-color pop, thick uniform outlines, chibi or big-head cartoon mascots, " +
+  "googly eyes, wide open-mouthed smiles, rainbow gradients, clip-art, cutesy kawaii style, " +
+  "textbook or educational-clipart look. 16:9 aspect ratio.";
 
 // quality_review マップの構造バージョン。後で項目を変えたら上げる。
 // v2: topic（トピック分類）を追加し interest_context をソース名からトピックへ変更。
@@ -80,11 +103,31 @@ const TOPIC_CATEGORIES = [
 const TOPIC_FALLBACK = "社会・くらし";
 
 /**
- * Imagen サムネ生成を実行する興味スコアの下限（コスト最適化）。
- * これ未満の記事は text_overlay フォールバック（アクセントグラデ + カテゴリアイコン）で
- * 表示され、閲覧されて興味スコアが上がれば次回パーソナライズ時に生成される。
+ * トピック別テンプレ画像（アプリにバンドルする asset パス）。
+ *
+ * Imagen 生成画像が無い/失敗した記事でも「何の記事か分かる画像」を必ず表示するための
+ * 基本レイヤー。thumbnail_config.base_asset に入れ、FeedThumbnail が AssetImage で描画する。
+ * ファイルは Flutter 側 assets/thumbnails/templates/*.jpg と pubspec への登録が必要。
  */
-const THUMBNAIL_MIN_INTEREST_SCORE = 40;
+const TOPIC_TEMPLATE_ASSET: Record<string, string> = {
+  "科学": "assets/thumbnails/templates/science.jpg",
+  "宇宙": "assets/thumbnails/templates/space.jpg",
+  "テクノロジー": "assets/thumbnails/templates/technology.jpg",
+  "自然・環境": "assets/thumbnails/templates/nature.jpg",
+  "動物": "assets/thumbnails/templates/animal.jpg",
+  "スポーツ": "assets/thumbnails/templates/sports.jpg",
+  "食べ物": "assets/thumbnails/templates/food.jpg",
+  "音楽・アート": "assets/thumbnails/templates/art.jpg",
+  "経済・お金": "assets/thumbnails/templates/economy.jpg",
+  "国際・世界": "assets/thumbnails/templates/world.jpg",
+  "文化・歴史": "assets/thumbnails/templates/culture.jpg",
+  "社会・くらし": "assets/thumbnails/templates/society.jpg",
+};
+
+/** トピックに対応するテンプレ画像 asset パスを返す（未知トピックは受け皿へ）。 */
+function templateAssetForTopic(topic: string): string {
+  return TOPIC_TEMPLATE_ASSET[topic] ?? TOPIC_TEMPLATE_ASSET[TOPIC_FALLBACK];
+}
 
 /** GNews API のレスポンス記事。 */
 interface GNewsArticle {
@@ -401,12 +444,130 @@ function rejectReason(review: QualityReview | null): RejectReason | null {
 }
 
 /**
- * 記事群を「採点ゲート → 合格分のみ子ども向け変換 → news_pool 書き込み」まで処理し、
- * 実際に書き込んだ件数を返す。fetchNews / refreshNewsPool の共通処理。
+ * メタデータサーバから Vertex/Storage 用のアクセストークンを取得する。
+ * Cloud Functions 実行環境でのみ有効。失敗時は空文字を返す（呼び出し側でフォールバック）。
+ */
+async function fetchAccessToken(): Promise<string> {
+  try {
+    const res = await fetch(
+      "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+      { headers: { "Metadata-Flavor": "Google" } },
+    );
+    const { access_token: token } = (await res.json()) as { access_token: string };
+    return token ?? "";
+  } catch (err) {
+    logger.warn("access token fetch failed", { err: `${err}` });
+    return "";
+  }
+}
+
+// ─── Push 通知（FCM） ─────────────────────────────────────────────────────────
+// 送信先はファミリー単位の単一アカウント（uid）配下の端末トークン。現状 parent/child の
+// 端末ロール区別は持たないため、両通知とも同じ uid の全トークンに届く（docs/PENDING_ACTIONS.md）。
+// 通知 data の型はクライアント fcm_service.dart のディープリンク契約と一致させること。
+
+type TokenRefMap = Map<string, FirebaseFirestore.DocumentReference>;
+
+/**
+ * 指定トークン群へ同一メッセージを送る。失効トークンは fcm_tokens から削除する。
+ *
+ * @param tokenRefs token 文字列 → その Firestore ドキュメント参照（失効時の掃除用）
+ * @returns 送信に成功した端末数
+ */
+async function sendToTokens(
+  tokenRefs: TokenRefMap,
+  title: string,
+  body: string,
+  data: Record<string, string>,
+): Promise<number> {
+  const tokens = [...tokenRefs.keys()];
+  if (tokens.length === 0) return 0;
+
+  const messaging = getMessaging();
+  const stale: FirebaseFirestore.DocumentReference[] = [];
+  let sent = 0;
+
+  // multicast は 1 回あたり最大 500 トークン。
+  for (let i = 0; i < tokens.length; i += 500) {
+    const chunk = tokens.slice(i, i + 500);
+    const res = await messaging.sendEachForMulticast({
+      tokens: chunk,
+      notification: { title, body },
+      data,
+      android: { priority: "high" },
+    });
+    res.responses.forEach((r, j) => {
+      if (r.success) {
+        sent++;
+        return;
+      }
+      const code = r.error?.code ?? "";
+      if (
+        code === "messaging/registration-token-not-registered" ||
+        code === "messaging/invalid-registration-token" ||
+        code === "messaging/invalid-argument"
+      ) {
+        const ref = tokenRefs.get(chunk[j]);
+        if (ref) stale.push(ref);
+      }
+    });
+  }
+
+  // 失効トークンを掃除（送信の成否には影響させない）。
+  if (stale.length > 0) {
+    const batch = getFirestore().batch();
+    stale.forEach((ref) => batch.delete(ref));
+    await batch.commit();
+    logger.info(`FCM: removed ${stale.length} stale tokens`);
+  }
+  return sent;
+}
+
+/** 1ユーザーの全端末トークンを取得する（token → docRef）。 */
+async function tokenRefsForUser(uid: string): Promise<TokenRefMap> {
+  const snap = await getFirestore()
+    .collection("users").doc(uid).collection("fcm_tokens").get();
+  const map: TokenRefMap = new Map();
+  snap.docs.forEach((d) => map.set(d.id, d.ref));
+  return map;
+}
+
+/**
+ * 通知①（子ども向け）: 新着記事が入ったら「新しいニュースが届いた」通知を送る。
+ *
+ * news_pool は全ユーザー共通のため、トークンを持つ全ユーザーの端末へ一斉送信する。
+ * ディープリンクはフィード（/child）へ。
+ */
+async function notifyNewArticles(newCount: number): Promise<void> {
+  if (newCount <= 0) return;
+  try {
+    const snap = await getFirestore().collectionGroup("fcm_tokens").get();
+    const map: TokenRefMap = new Map();
+    snap.docs.forEach((d) => map.set(d.id, d.ref));
+    const body = newCount === 1
+      ? "あたらしい記事を1本ついかしたよ。よんでみよう！"
+      : `あたらしい記事を${newCount}本ついかしたよ。よんでみよう！`;
+    const sent = await sendToTokens(map, "新しいニュースがとどいたよ📰", body, {
+      type: "feed",
+    });
+    logger.info(`notifyNewArticles: sent to ${sent} devices (newCount=${newCount})`);
+  } catch (err) {
+    logger.error("notifyNewArticles failed", { err: `${err}` });
+  }
+}
+
+/**
+ * 記事群を「採点ゲート → 合格分のみ子ども向け変換 → サムネ生成 → news_pool 書き込み」まで
+ * 処理し、実際に書き込んだ件数を返す。fetchNews / refreshNewsPool の共通処理。
  *
  * ゲートは変換の前に置く（落とす記事に変換コストを払わない）。
+ * サムネは記事単位（全ユーザー共通）で1回だけ生成し news_pool に保存するため、
+ * Common / Child / 詳細すべての画面でそのまま表示される（personalizeArticles は
+ * 生成済み URL を検知して再生成をスキップする）。
  */
-async function ingestArticles(articles: GNewsArticle[]): Promise<number> {
+async function ingestArticles(
+  articles: GNewsArticle[],
+): Promise<{ written: number; newCount: number }> {
   // 1. 採点（並列）。安全性を確認できない記事は null。
   const reviews = await Promise.all(articles.map(scoreArticle));
 
@@ -440,17 +601,59 @@ async function ingestArticles(articles: GNewsArticle[]): Promise<number> {
     survivors.map((x) => toChildFriendly(x.article)),
   );
 
+  // 3.5 サムネ生成（並列・全記事対象）。記事本文に合った画像を Imagen 3 で1記事1枚生成する。
+  // GNews の元画像は CORS でブロックされるため使わない。生成に失敗した記事は
+  // カテゴリ別テンプレ画像（base_asset）にフォールバックし「画像なし」状態を作らない。
+  const project = process.env.GCLOUD_PROJECT ?? "";
+  const accessToken = await fetchAccessToken();
+  const thumbUrls = await Promise.all(
+    survivors.map(async ({ article: a, review }, i) => {
+      if (!accessToken) return "";
+      try {
+        return await generateOneThumbnail(
+          newsIdFromUrl(a.url),
+          converted[i].displayTitle,
+          converted[i].displayTagline,
+          review.topic,
+          accessToken,
+          project,
+        );
+      } catch (err) {
+        logger.warn("ingest thumbnail generation failed; using template", {
+          url: a.url,
+          err: `${err}`,
+        });
+        return "";
+      }
+    }),
+  );
+
   // 4. WriteBatch で news_pool（合格）と rejected_articles（除外）へ書き込み。
   const db = getFirestore();
+
+  // 通知①のため「今回初めて追加される記事」の数を数える（既存 id は上書き=重複）。
+  const survivorIds = survivors.map(({ article }) => newsIdFromUrl(article.url));
+  let newCount = 0;
+  if (survivorIds.length > 0) {
+    const existing = await db.getAll(
+      ...survivorIds.map((id) => db.collection("news_pool").doc(id)),
+    );
+    newCount = existing.filter((s) => !s.exists).length;
+  }
+
   const batch = db.batch();
 
   survivors.forEach(({ article: a, review }, i) => {
     const id = newsIdFromUrl(a.url);
     const cf = converted[i];
 
-    // GNews の画像 URL は CORS でブロックされるため使わない。
-    // 常に text_overlay で保存し、personalizeArticles の Imagen 3 が後で生成する。
-    const thumbnailConfig = { mode: "text_overlay", base_asset: "", optional_generated_url: "" };
+    // 生成できた記事は generated（Imagen URL）、失敗時はトピック別テンプレ画像で表示する。
+    // base_asset は generated 時も保持し、ネットワーク画像が失敗したときの受け皿にする。
+    const generatedUrl = thumbUrls[i];
+    const template = templateAssetForTopic(review.topic);
+    const thumbnailConfig = generatedUrl
+      ? { mode: "generated", base_asset: template, optional_generated_url: generatedUrl }
+      : { mode: "text_overlay", base_asset: template, optional_generated_url: "" };
 
     batch.set(db.collection("news_pool").doc(id), {
       original_title: a.title,
@@ -505,7 +708,7 @@ async function ingestArticles(articles: GNewsArticle[]): Promise<number> {
   });
 
   await batch.commit();
-  return survivors.length;
+  return { written: survivors.length, newCount };
 }
 
 /**
@@ -534,9 +737,11 @@ export const fetchNews = onCall(
       return { count: 0 };
     }
 
-    const count = await ingestArticles(articles);
-    logger.info(`fetchNews wrote ${count} articles for ${uid}`);
-    return { count };
+    // 手動取得は「今アプリを使っている人」の操作なので新着通知は出さない
+    //（通知①はスケジュールの refreshNewsPool 側でのみ送る）。
+    const { written } = await ingestArticles(articles);
+    logger.info(`fetchNews wrote ${written} articles for ${uid}`);
+    return { count: written };
   },
 );
 
@@ -567,8 +772,61 @@ export const refreshNewsPool = onSchedule(
       return;
     }
 
-    const count = await ingestArticles(articles);
-    logger.info(`refreshNewsPool wrote ${count} articles to news_pool`);
+    const { written, newCount } = await ingestArticles(articles);
+    logger.info(
+      `refreshNewsPool wrote ${written} articles (${newCount} new) to news_pool`,
+    );
+    // 通知①（子ども向け）: 新着があれば全端末へ「新しいニュースが届いた」通知。
+    await notifyNewArticles(newCount);
+  },
+);
+
+/**
+ * 通知②（保護者向け）: 毎日 18:00(JST)、その日にお子さんがアプリを使った家庭へ
+ * 「今日読んだ記事を見てみましょう」というダイジェスト通知を送る（帰宅途中の閲覧想定）。
+ *
+ * 「本日利用」の判定は users/{uid}.last_active_at（閲覧のたびに updateInterestModel が刻む）。
+ * ディープリンクは保護者ダッシュボード（/parent）へ。
+ */
+export const sendParentDigest = onSchedule(
+  {
+    schedule: "0 18 * * *",
+    timeZone: "Asia/Tokyo",
+    timeoutSeconds: 120,
+    memory: "256MiB",
+  },
+  async () => {
+    const db = getFirestore();
+
+    // JST 今日の 0:00 を UTC の Timestamp として求める（関数は UTC で動くため補正）。
+    const jstNow = new Date(Date.now() + 9 * 3600 * 1000);
+    const startUtcMs =
+      Date.UTC(jstNow.getUTCFullYear(), jstNow.getUTCMonth(), jstNow.getUTCDate()) -
+      9 * 3600 * 1000;
+    const startOfTodayJST = Timestamp.fromMillis(startUtcMs);
+
+    const activeSnap = await db
+      .collection("users")
+      .where("last_active_at", ">=", startOfTodayJST)
+      .get();
+
+    let families = 0;
+    let totalSent = 0;
+    for (const userDoc of activeSnap.docs) {
+      const map = await tokenRefsForUser(userDoc.id);
+      if (map.size === 0) continue;
+      const sent = await sendToTokens(
+        map,
+        "今日のまなびレポート📚",
+        "お子さんが今日読んだ記事と、興味の広がりをのぞいてみましょう。",
+        { type: "parent_digest" },
+      );
+      families++;
+      totalSent += sent;
+    }
+    logger.info(
+      `sendParentDigest: sent to ${totalSent} devices across ${families} families`,
+    );
   },
 );
 
@@ -1014,117 +1272,169 @@ export const personalizeArticles = onCall(
       )
     );
 
+    const fulfilled = settled
+      .filter(
+        (r): r is PromiseFulfilledResult<PersonalizedRecord> => r.status === "fulfilled"
+      )
+      .map((r) => r.value);
+
+    // 既存 personalized_feed の is_viewed / thumb_variant を対象記事分だけ読む
+    // （未読判定・冪等化に使用。全コレクション走査を避けるため getAll で対象 id のみ取得）。
+    const feedState = new Map<string, { viewed: boolean; variant: string }>();
+    if (fulfilled.length > 0) {
+      const feedRefs = fulfilled.map((item) =>
+        db.collection("users").doc(uid).collection("personalized_feed").doc(item.news_id)
+      );
+      const snaps = await db.getAll(...feedRefs);
+      for (const d of snaps) {
+        const data = d.data();
+        if (!data) continue;
+        feedState.set(d.id, {
+          viewed: data.is_viewed === true,
+          variant: (data.thumb_variant as string) ?? "",
+        });
+      }
+    }
+
     // telemetry（is_viewed / view_duration_seconds）は上書きしないよう merge: true
     const batch = db.batch();
     let count = 0;
-    for (const r of settled) {
-      if (r.status !== "fulfilled") continue;
-      const item = r.value;
+    for (const item of fulfilled) {
       const ref = db
         .collection("users")
         .doc(uid)
         .collection("personalized_feed")
         .doc(item.news_id);
-      batch.set(
-        ref,
-        {
-          news_id: item.news_id,
-          interest_context: item.interest_context,
-          display_title: item.display_title,
-          display_tagline: item.display_tagline,
-          thumbnail_config: item.thumbnail_config,
-          interest_score: item.interest_score,
-          personalized_at: item.personalized_at,
-        },
-        { merge: true }
-      );
+      // 既に興味別サムネ（variant:"interest"）を持つ未読記事は、その専用画像を保持する。
+      // item.thumbnail_config は共有 news_pool の画像なので、上書きすると B で再生成した
+      // 専用サムネが毎回リセットされ、以降 variant 冪等化で復活しなくなるため除外する。
+      const st = feedState.get(item.news_id);
+      const preserveThumb = st?.variant === "interest" && !st.viewed;
+      const payload: Record<string, unknown> = {
+        news_id: item.news_id,
+        interest_context: item.interest_context,
+        display_title: item.display_title,
+        display_tagline: item.display_tagline,
+        interest_score: item.interest_score,
+        personalized_at: item.personalized_at,
+      };
+      if (!preserveThumb) payload.thumbnail_config = item.thumbnail_config;
+      batch.set(ref, payload, { merge: true });
       count++;
     }
     await batch.commit();
 
     // ─── バックグラウンドサムネ生成 ────────────────────────────────────────────
-    // Imagen 3 でサムネを生成する対象を選定。
-    // Storage URL（storage.googleapis.com）が既にある記事はスキップ（冪等）。
-    // GNews 由来のURLが入っている記事は CORS で表示できないため再生成対象にする。
-    const needsThumbnail = (config: ThumbnailConfigData): boolean => {
-      if (config.mode !== "generated") return true;
-      // firebasestorage.googleapis.com/v0/... = Imagen 生成済み（CORS OK）→ スキップ
-      // storage.googleapis.com/... = 旧 GCS 直 URL または GNews URL（CORS NG）→ 再生成
-      return !config.optional_generated_url.startsWith("https://firebasestorage.googleapis.com");
-    };
-    const fulfilled = settled
-      .filter(
-        (r): r is PromiseFulfilledResult<PersonalizedRecord> =>
-          r.status === "fulfilled" && needsThumbnail(r.value.thumbnail_config)
-      )
-      .map((r) => r.value);
-    // コスト最適化: 興味スコアが低い記事はフィード下位に沈むため Imagen を実行しない。
-    // 該当記事は text_overlay（アクセントグラデ + カテゴリアイコン）のまま表示される。
-    const thumbTargets = fulfilled.filter(
-      (item) => item.interest_score >= THUMBNAIL_MIN_INTEREST_SCORE
+    // 2 種類の生成を行う。
+    //  A. サムネ補完（興味非依存）: firebasestorage URL を持たない記事に共有サムネを
+    //     生成し news_pool と personalized_feed の両方に書く。CORS 表示の担保。
+    //     通常は ingestArticles で全記事生成済みのため、ここは生成失敗の取りこぼしのみ。
+    //  B. 興味別再生成（Phase③）: 既に共有サムネがあり・未読で・トピックが子どもの
+    //     上位興味に一致する記事に、その子専用サムネを生成。personalized_feed だけに
+    //     書き（共有 news_pool は汚さない）、thumb_variant:"interest" で冪等化する。
+    const hasValidThumb = (config: ThumbnailConfigData): boolean =>
+      config.mode === "generated" &&
+      config.optional_generated_url.startsWith("https://firebasestorage.googleapis.com");
+
+    // 子どもの上位興味カテゴリ（減衰後 > 0.5・上位5件）。B の対象トピック判定に使う。
+    const topInterestCategories = new Set(
+      Object.entries(decayedInterests)
+        .filter(([, v]) => v > 0.5)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 5)
+        .map(([k]) => k)
     );
-    const skippedForCost = fulfilled.length - thumbTargets.length;
-    if (skippedForCost > 0) {
-      logger.info(
-        `personalizeArticles: skipped ${skippedForCost} thumbnails (interest_score < ${THUMBNAIL_MIN_INTEREST_SCORE})`
-      );
-    }
 
-    if (thumbTargets.length > 0) {
-      try {
-        const project = process.env.GCLOUD_PROJECT ?? "";
-        const tokenRes = await fetch(
-          "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
-          { headers: { "Metadata-Flavor": "Google" } }
-        );
-        const { access_token: accessToken } = (await tokenRes.json()) as {
-          access_token: string;
-        };
+    // A: 共有サムネが未整備の記事。
+    const completionTargets = fulfilled.filter(
+      (item) => !hasValidThumb(item.thumbnail_config)
+    );
+    // B: 共有サムネはあるが、未読 × 上位興味トピック × 未生成 の記事。
+    const interestTargets = fulfilled.filter((item) => {
+      if (!hasValidThumb(item.thumbnail_config)) return false; // A に任せ二重生成を避ける
+      if (!topInterestCategories.has(item.interest_context)) return false;
+      const st = feedState.get(item.news_id);
+      if (st?.viewed) return false;                 // 既読は再生成しない
+      if (st?.variant === "interest") return false; // 生成済みはスキップ（冪等）
+      return true;
+    });
 
-        const thumbSettled = await Promise.allSettled(
-          thumbTargets.map(async (item) => {
-            const imageUrl = await generateOneThumbnail(
-              item.news_id,
-              item.display_title,
-              item.display_tagline,
-              item.interest_context,
-              accessToken,
-              project
-            );
-            return { news_id: item.news_id, imageUrl };
-          })
-        );
-
+    if (completionTargets.length > 0 || interestTargets.length > 0) {
+      const project = process.env.GCLOUD_PROJECT ?? "";
+      const accessToken = await fetchAccessToken();
+      if (!accessToken) {
+        logger.warn("personalizeArticles: access token unavailable, skip thumbnails");
+      } else {
+        const interestHint = [...topInterestCategories].join(", ");
         const thumbBatch = db.batch();
         let thumbCount = 0;
-        for (const r of thumbSettled) {
+
+        // A: 共有サムネ → news_pool + personalized_feed の両方を更新。
+        const compSettled = await Promise.allSettled(
+          completionTargets.map(async (item) => ({
+            news_id: item.news_id,
+            imageUrl: await generateOneThumbnail(
+              item.news_id, item.display_title, item.display_tagline,
+              item.interest_context, accessToken, project
+            ),
+          }))
+        );
+        for (const r of compSettled) {
           if (r.status !== "fulfilled") {
-            logger.warn("thumbnail generation failed", { reason: `${r.reason}` });
+            logger.warn("thumbnail(completion) failed", { reason: `${r.reason}` });
             continue;
           }
           const { news_id, imageUrl } = r.value;
-          const thumbConfig: ThumbnailConfigData = {
-            mode: "generated",
-            base_asset: "",
-            optional_generated_url: imageUrl,
+          const cfg: ThumbnailConfigData = {
+            mode: "generated", base_asset: "", optional_generated_url: imageUrl,
           };
-          // news_pool 更新 → 次回 personalizeArticles で text_overlay と判定されなくなる
           thumbBatch.update(db.collection("news_pool").doc(news_id), {
-            thumbnail_config: thumbConfig,
+            thumbnail_config: cfg,
           });
-          // personalized_feed 更新
           thumbBatch.set(
             db.collection("users").doc(uid).collection("personalized_feed").doc(news_id),
-            { thumbnail_config: thumbConfig },
+            { thumbnail_config: cfg },
             { merge: true }
           );
           thumbCount++;
         }
+
+        // B: 興味別サムネ → 共有パスを上書きせず専用パスへ保存、personalized_feed のみ更新。
+        const intSettled = await Promise.allSettled(
+          interestTargets.map(async (item) => ({
+            news_id: item.news_id,
+            imageUrl: await generateOneThumbnail(
+              item.news_id, item.display_title, item.display_tagline,
+              item.interest_context, accessToken, project,
+              {
+                storageObjectPath: `thumbnails/personalized/${uid}/${item.news_id}.jpg`,
+                interestHint,
+              }
+            ),
+          }))
+        );
+        for (const r of intSettled) {
+          if (r.status !== "fulfilled") {
+            logger.warn("thumbnail(interest) failed", { reason: `${r.reason}` });
+            continue;
+          }
+          const { news_id, imageUrl } = r.value;
+          const cfg: ThumbnailConfigData = {
+            mode: "generated", base_asset: "", optional_generated_url: imageUrl,
+          };
+          thumbBatch.set(
+            db.collection("users").doc(uid).collection("personalized_feed").doc(news_id),
+            { thumbnail_config: cfg, thumb_variant: "interest" },
+            { merge: true }
+          );
+          thumbCount++;
+        }
+
         if (thumbCount > 0) await thumbBatch.commit();
-        logger.info(`personalizeArticles: ${thumbCount} thumbnails generated for uid=${uid}`);
-      } catch (err) {
-        // サムネ失敗はパーソナライズ全体の失敗にしない
-        logger.error("thumbnail batch failed", { err: `${err}` });
+        logger.info(
+          `personalizeArticles: thumbnails for uid=${uid} ` +
+          `(completion=${completionTargets.length}, interest=${interestTargets.length})`
+        );
       }
     }
 
@@ -1144,6 +1454,11 @@ export const personalizeArticles = onCall(
  * @param category    カテゴリ/ジャンル（プロンプトに使用）
  * @param accessToken メタデータサーバーから取得した Bearer トークン
  * @param project     GCP プロジェクト ID
+ * @param opts        任意設定。
+ *   - storageObjectPath: 保存先 Storage オブジェクトパス（省略時 `thumbnails/{newsId}.jpg`）。
+ *     共有 news_pool サムネを上書きしたくない興味別再生成では専用パスを渡す。
+ *   - interestHint:      その子が特に関心を持つテーマ（英語）。Gemini のシーン選定を
+ *     この関心方向に寄せるためのヒント。
  * @returns           Storage 公開 URL
  */
 async function generateOneThumbnail(
@@ -1152,33 +1467,49 @@ async function generateOneThumbnail(
   tagline: string,
   category: string,
   accessToken: string,
-  project: string
+  project: string,
+  opts?: { storageObjectPath?: string; interestHint?: string }
 ): Promise<string> {
+  const storageObjectPath = opts?.storageObjectPath ?? `thumbnails/${newsId}.jpg`;
+  const interestHint = opts?.interestHint?.trim();
   // Gemini で記事内容から Imagen 向け英語ビジュアルプロンプトを生成する。
   // Imagen 3 は英語プロンプトの方が品質が高く、日本語ソース名（"NHK ニュース" 等）を
   // そのままテーマに使うと記事と無関係な画像が生成されるため、Gemini が意味を補完する。
-  let promptText: string;
+  // Gemini には「何を描くか（被写体・シーン）」だけを英語で出させ、アートスタイルは
+  // THUMBNAIL_STYLE で決め打ちして付与する。こうするとモデルのブレに関係なく
+  // 全記事で一貫した「知的でクール」なトーンになる。
+  let sceneText: string;
   try {
     const pResult = await getGenAI().models.generateContent({
       model: GEMINI_MODEL,
       contents: [{
         role: "user",
         parts: [{ text: [
-          "Write a short English prompt for an AI image generator to create a children's news thumbnail.",
+          "You are an art director for a stylish news app aimed at smart Japanese pre-teens",
+          "(ages 10-12) who are preparing for junior-high entrance exams.",
+          "Describe ONE specific, visually striking scene or a single symbolic object that",
+          "best represents the news article below.",
+          `Article category: ${category}`,
           `Article title: ${title}`,
           `Article summary: ${tagline}`,
-          "Rules: describe ONE specific scene that represents the article visually.",
-          "Style must be: bright colorful cartoon illustration for kids aged 6-10, cheerful, no text, no letters, no words in the image.",
-          "Output only the image prompt (max 60 words). No explanation, no quotes.",
+          ...(interestHint
+            ? [`This reader is especially fascinated by: ${interestHint}. ` +
+               "If the article naturally connects to that interest, choose a scene that " +
+               "highlights the connection; otherwise ignore this hint."]
+            : []),
+          "Rules: describe only the concrete visual subject (people, objects, setting, action).",
+          "Do NOT mention any art style, colour, medium, or the words 'child'/'kids'.",
+          "Output only the scene description in English (max 40 words). No explanation, no quotes.",
         ].join("\n") }],
       }],
       config: { temperature: 0.8 },
     });
-    promptText = (pResult.text ?? "").trim();
-    if (!promptText) throw new Error("empty");
+    sceneText = (pResult.text ?? "").trim();
+    if (!sceneText) throw new Error("empty");
   } catch {
-    promptText = `Children's news illustration about: ${title}. ${tagline}. Bright colorful cartoon art for kids, no text, 16:9.`;
+    sceneText = `A single symbolic scene that represents this news: ${title}. ${tagline}.`;
   }
+  const promptText = `${sceneText} ${THUMBNAIL_STYLE}`;
 
   const endpoint = [
     "https://us-central1-aiplatform.googleapis.com/v1",
@@ -1212,7 +1543,7 @@ async function generateOneThumbnail(
   );
 
   const bucket = getStorage().bucket();
-  const file = bucket.file(`thumbnails/${newsId}.jpg`);
+  const file = bucket.file(storageObjectPath);
   // firebaseStorageDownloadTokens を埋め込むと Storage セキュリティルールに関係なく
   // 認証なしで読み込める安定した Download URL が発行される（有効期限なし）。
   const downloadToken = randomUUID();
@@ -1224,7 +1555,7 @@ async function generateOneThumbnail(
     },
   });
 
-  const encodedPath = encodeURIComponent(`thumbnails/${newsId}.jpg`);
+  const encodedPath = encodeURIComponent(storageObjectPath);
   return `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodedPath}?alt=media&token=${downloadToken}`;
 }
 
@@ -1327,6 +1658,14 @@ export const updateInterestModel = onCall(
       );
     }
 
+    const db = getFirestore();
+    // 保護者ダイジェスト（sendParentDigest）用に「本日利用」を記録する。
+    // 短時間のバウンスでも「アプリを使った」ことに変わりはないため、除外判定より前に刻む。
+    await db.collection("users").doc(uid).set(
+      { last_active_at: Timestamp.now() },
+      { merge: true },
+    );
+
     // ── 早期バウンス除外（Firestore 読み取り前の軽量チェック）─────────────────
     // T_EXP_FALLBACK_SEC × 0.2 = 9秒未満は記事の長さに関わらず確実にバウンス。
     if (viewDurationSeconds < T_EXP_FALLBACK_SEC * 0.2) {
@@ -1334,7 +1673,6 @@ export const updateInterestModel = onCall(
       return;
     }
 
-    const db = getFirestore();
     const profileRef = db
       .collection("users")
       .doc(uid)

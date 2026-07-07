@@ -28,7 +28,8 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
-    // その他のユーザーデータ: 本人のみ。
+    // その他のユーザーデータ（FCM トークン users/{uid}/fcm_tokens/{token} を含む）: 本人のみ。
+    // 通知の送信側（Cloud Functions / Admin SDK）はこのルールに関係なく読み取れる。
     match /users/{userId}/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }

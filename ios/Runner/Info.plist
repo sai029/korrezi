@@ -45,6 +45,11 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+		<string>fetch</string>
+	</array>
 	<key>GIDClientID</key>
 	<string>879396917356-njiipmbn660pdjbrh2q3ac9brini78tn.apps.googleusercontent.com</string>
 	<key>CFBundleURLTypes</key>

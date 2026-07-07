@@ -19,7 +19,9 @@ import '../firebase/firebase_providers.dart';
 /// /child・/common・/parent は StatefulShellRoute.indexedStack で束ね、
 /// 画面下部の NavigationBar で切り替える。
 ///
-/// TODO: FCM Push通知のディープリンク対応を追加する。
+/// FCM Push 通知のディープリンクは `core/notifications/fcm_service.dart` が
+/// 本 GoRouter の `.go('/common/article/<newsId>')` を呼んで実現する
+/// （通知 data 契約: `{ "type": "article", "news_id": "<id>" }`）。
 final appRouterProvider = Provider<GoRouter>((ref) {
   // 認証状態の変化で GoRouter を再評価させるための Listenable。
   final refresh = ValueNotifier<int>(0);

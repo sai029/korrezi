@@ -43,15 +43,23 @@ abstract final class AppColors {
   static const success = Color(0xFF258039);
   static const warning = Color(0xFFEDB83D);
   static const error   = Color(0xFFD70026);
+
+  /// 画像に重ねる白テキストの影（モノトーン/明るい生成画像でも輪郭を保つ）。
+  static const onImageShadow = Color(0xB3000000);
 }
 
 // ─── グラデーション ───────────────────────────────────────────────────────────
 abstract final class AppGradients {
   /// フィード画面の下部オーバーレイ（テキスト可読性確保）。
+  ///
+  /// モノトーン／白の多い生成画像でも下部のタイトル（ほぼ白）が沈むよう、
+  /// 上 45% は透明のまま画像を見せ、そこから下端の濃紺 ~95% まで一気に落とす。
+  /// 中段が半透明のままだと画像の白が透けて白文字と同化するため 3 ストップにする。
   static const feedOverlay = LinearGradient(
-    begin: Alignment.center,
+    begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
-    colors: [Colors.transparent, Color(0xD9000B29)],
+    stops: [0.0, 0.45, 1.0],
+    colors: [Colors.transparent, Color(0x66000B29), Color(0xF2000B29)],
   );
 
   /// サムネイルフォールバック背景（accent → brand）。

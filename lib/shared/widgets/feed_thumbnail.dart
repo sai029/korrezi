@@ -29,19 +29,27 @@ class FeedThumbnail extends StatefulWidget {
 }
 
 class _FeedThumbnailState extends State<FeedThumbnail> {
-  bool _imageError = false;
+  // 生成画像（ネットワーク）とテンプレ画像（asset）の失敗を分けて追跡し、
+  // 生成失敗 → テンプレ → アイコン の順に段階フォールバックする（無限ループ防止）。
+  bool _networkError = false;
+  bool _assetError = false;
 
-  ImageProvider? _resolveProvider() {
-    if (_imageError) return null;
+  /// 表示する画像プロバイダと、それがネットワーク画像かどうかを返す。
+  ({ImageProvider? provider, bool isNetwork}) _resolveProvider() {
     final wantsGenerated = widget.useGeneratedImages ||
         widget.config.mode == ThumbnailMode.generated;
-    if (wantsGenerated && widget.config.optionalGeneratedUrl.isNotEmpty) {
-      return NetworkImage(widget.config.optionalGeneratedUrl);
+    if (!_networkError &&
+        wantsGenerated &&
+        widget.config.optionalGeneratedUrl.isNotEmpty) {
+      return (
+        provider: NetworkImage(widget.config.optionalGeneratedUrl),
+        isNetwork: true,
+      );
     }
-    if (widget.config.baseAsset.isNotEmpty) {
-      return AssetImage(widget.config.baseAsset);
+    if (!_assetError && widget.config.baseAsset.isNotEmpty) {
+      return (provider: AssetImage(widget.config.baseAsset), isNetwork: false);
     }
-    return null;
+    return (provider: null, isNetwork: false);
   }
 
   @override
@@ -49,13 +57,18 @@ class _FeedThumbnailState extends State<FeedThumbnail> {
     super.didUpdateWidget(old);
     if (old.config.optionalGeneratedUrl !=
         widget.config.optionalGeneratedUrl) {
-      setState(() => _imageError = false);
+      setState(() => _networkError = false);
+    }
+    if (old.config.baseAsset != widget.config.baseAsset) {
+      setState(() => _assetError = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final provider = _resolveProvider();
+    final resolved = _resolveProvider();
+    final provider = resolved.provider;
+    final isNetwork = resolved.isNetwork;
     final scheme = Theme.of(context).colorScheme;
 
     if (provider != null) {
@@ -68,7 +81,15 @@ class _FeedThumbnailState extends State<FeedThumbnail> {
             onError: (e, _) {
               if (mounted) {
                 WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) setState(() => _imageError = true);
+                  if (!mounted) return;
+                  // 失敗した層だけを無効化し、次の層へフォールバックする。
+                  setState(() {
+                    if (isNetwork) {
+                      _networkError = true;
+                    } else {
+                      _assetError = true;
+                    }
+                  });
                 });
               }
             },

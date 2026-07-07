@@ -343,6 +343,13 @@ class _HeroCard extends StatelessWidget {
                                 color: AppColors.brandPrimaryInk,
                                 fontWeight: FontWeight.w800,
                                 height: 1.2,
+                                shadows: const [
+                                  Shadow(
+                                    color: AppColors.onImageShadow,
+                                    blurRadius: 8,
+                                    offset: Offset(0, 1),
+                                  ),
+                                ],
                               ),
                         ),
                       ],
