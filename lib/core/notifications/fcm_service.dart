@@ -57,7 +57,13 @@ class FcmService {
     FirebaseMessaging.onBackgroundMessage(fcmBackgroundHandler);
 
     // トークン取得・保存と、ローテーション購読。
-    _lastToken = await messaging.getToken();
+    // iOS の無料 / 個人開発チームでは Push（aps-environment）を持てないため
+    // APNS 登録が失敗し getToken が例外を投げる。ここで握りつぶし、以降は無害に継続する。
+    try {
+      _lastToken = await messaging.getToken();
+    } catch (e) {
+      debugPrint('FCM getToken failed (push unavailable?): $e');
+    }
     final token = _lastToken;
     if (token != null) await _saveToken(token);
     _tokenSub = messaging.onTokenRefresh.listen((t) {

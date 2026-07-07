@@ -2,7 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>aps-environment</key>
-	<string>development</string>
+	<!--
+		Push 通知（aps-environment）は Apple の有料 Developer Program でのみ利用可能。
+		無料 / 個人開発チームでは実機ビルドが署名エラーになるため無効化している。
+		本番配布や FCM 動作確認時はこのキーを復活させること:
+		<key>aps-environment</key>
+		<string>development</string>
+	-->
 </dict>
 </plist>
