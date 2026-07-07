@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/auth/auth_service.dart';
 import '../../core/firebase/firebase_providers.dart';
 import '../../core/firebase/firestore_seeder.dart';
 import '../../core/firebase/news_fetch_service.dart';
@@ -9,15 +8,16 @@ import '../../features/child_feed/application/child_feed_provider.dart';
 import '../../features/common_view/application/common_view_provider.dart';
 import '../../features/parent_dashboard/application/parent_dashboard_provider.dart';
 
-/// AppBar アクション用の開発・アカウントメニュー。
-/// ドロワーから移植したサンプルデータ投入・ニュース取得・ログアウトを提供する。
+/// AppBar アクション用の開発メニュー（dev 専用操作）。
+/// サンプルデータ投入・ニュース取得を提供する。
+/// アカウント/ログアウト・役割切り替えは設定画面（/settings）に集約している。
 class DevMenuButton extends ConsumerWidget {
   const DevMenuButton({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return PopupMenuButton<_Action>(
-      onSelected: (action) => _handle(context, ref, action),
+      onSelected: (action) => _handle(context, action),
       itemBuilder: (_) => const [
         PopupMenuItem(
           value: _Action.seed,
@@ -35,21 +35,11 @@ class DevMenuButton extends ConsumerWidget {
             contentPadding: EdgeInsets.zero,
           ),
         ),
-        PopupMenuDivider(),
-        PopupMenuItem(
-          value: _Action.logout,
-          child: ListTile(
-            leading: Icon(Icons.logout),
-            title: Text('ログアウト'),
-            contentPadding: EdgeInsets.zero,
-          ),
-        ),
       ],
     );
   }
 
-  Future<void> _handle(
-      BuildContext context, WidgetRef ref, _Action action) async {
+  Future<void> _handle(BuildContext context, _Action action) async {
     final messenger = ScaffoldMessenger.of(context);
     final container = ProviderScope.containerOf(context, listen: false);
 
@@ -99,11 +89,8 @@ class DevMenuButton extends ConsumerWidget {
         } catch (e) {
           messenger.showSnackBar(SnackBar(content: Text('取得に失敗しました: $e')));
         }
-
-      case _Action.logout:
-        await ref.read(authServiceProvider).signOut();
     }
   }
 }
 
-enum _Action { seed, news, logout }
+enum _Action { seed, news }

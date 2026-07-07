@@ -6,6 +6,7 @@ import '../../../core/theme/tokens.dart';
 import '../../../shared/models/news_pool.dart';
 import '../../../shared/widgets/dev_menu_button.dart';
 import '../../../shared/widgets/feed_thumbnail.dart';
+import '../../../shared/widgets/settings_button.dart';
 import '../../../shared/widgets/furigana_text.dart';
 import '../application/common_view_provider.dart';
 import '../application/favorites_provider.dart';
@@ -33,7 +34,7 @@ class _CommonViewScreenState extends ConsumerState<CommonViewScreen> {
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: const Text('ニュース'),
-        actions: const [DevMenuButton()],
+        actions: const [SettingsButton(), DevMenuButton()],
       ),
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),

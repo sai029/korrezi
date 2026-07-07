@@ -8,6 +8,7 @@ import '../../features/common_view/presentation/article_detail_screen.dart';
 import '../../features/common_view/presentation/common_view_screen.dart';
 import '../../features/onboarding/presentation/role_select_screen.dart';
 import '../../features/parent_dashboard/presentation/parent_dashboard_screen.dart';
+import '../../features/settings/presentation/settings_screen.dart';
 import '../../shared/widgets/shell_scaffold.dart';
 import '../device/device_role.dart';
 import '../firebase/firebase_providers.dart';
@@ -60,6 +61,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/onboarding',
         builder: (context, state) => const RoleSelectScreen(),
+      ),
+      GoRoute(
+        path: '/settings',
+        builder: (context, state) => const SettingsScreen(),
       ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) =>
