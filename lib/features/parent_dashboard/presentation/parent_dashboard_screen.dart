@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../shared/widgets/bouncy_tap.dart';
 import '../../../shared/widgets/dev_menu_button.dart';
+import '../../../shared/widgets/settings_button.dart';
 import '../../common_view/application/common_view_provider.dart';
 import '../application/parent_dashboard_provider.dart';
 import 'widgets/reading_lamp.dart';
@@ -28,7 +29,7 @@ class ParentDashboardScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('きょうの ようす'),
-        actions: const [DevMenuButton()],
+        actions: const [SettingsButton(), DevMenuButton()],
       ),
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),

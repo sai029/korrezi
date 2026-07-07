@@ -1,11 +1,11 @@
 {
-    "name": "flutter_application_1",
-    "short_name": "flutter_application_1",
+    "name": "コレッジ",
+    "short_name": "コレッジ",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#FDFCFB",
+    "theme_color": "#D70026",
+    "description": "コレッジ — 子どもが世界を発見し、親子で話すきっかけをつくる学びアプリ",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

@@ -8,6 +8,7 @@ import '../../features/common_view/presentation/article_detail_screen.dart';
 import '../../features/common_view/presentation/common_view_screen.dart';
 import '../../features/onboarding/presentation/role_select_screen.dart';
 import '../../features/parent_dashboard/presentation/parent_dashboard_screen.dart';
+import '../../features/settings/presentation/settings_screen.dart';
 import '../../shared/widgets/shell_scaffold.dart';
 import '../device/device_role.dart';
 import '../firebase/firebase_providers.dart';
@@ -50,6 +51,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
       // 3. 役割確定後にログイン/オンボーディングへ来たら、役割の起点画面へ。
       if (loc == '/login' || loc == '/onboarding') return role.homePath;
+
+      // 4. 子ども端末では保護者向け「ようす」(/parent) を隠す。
+      //    タブでの非表示に加え、ディープリンク等での直接遷移もフィードへ戻す。
+      if (role == DeviceRole.child && loc == '/parent') return '/child';
       return null;
     },
     routes: [
@@ -60,6 +65,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/onboarding',
         builder: (context, state) => const RoleSelectScreen(),
+      ),
+      GoRoute(
+        path: '/settings',
+        builder: (context, state) => const SettingsScreen(),
       ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) =>

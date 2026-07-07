@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/auth/auth_service.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../shared/widgets/bouncy_tap.dart';
+import '../../../shared/widgets/koledge_logo.dart';
 
 /// 起動時のログイン画面。
 ///
@@ -50,22 +50,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // ブランドアイコン: brandPrimary, 64px
-                const Icon(
-                  Icons.auto_awesome,
-                  size: 64,
-                  color: AppColors.brandPrimary,
-                ),
-                const SizedBox(height: AppSpacing.space4),
-                // ロゴ: M PLUS Rounded 1c
+                // ブランドロゴ「コレッジ」（マーク + ワードマーク）
+                const KoledgeLogo(size: 88, showWordmark: true),
+                const SizedBox(height: AppSpacing.space3),
                 Text(
-                  'AI Discovery\nLearning App',
+                  'せかいを見つけて、親子で話そう',
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.mPlusRounded1c(
-                    fontSize: AppType.sizeHeadline,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.ink900,
-                  ),
+                  style: textTheme.bodyMedium,
                 ),
                 const SizedBox(height: AppSpacing.space2),
                 Text(

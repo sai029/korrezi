@@ -30,7 +30,7 @@ class _MyAppState extends ConsumerState<MyApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'AI Discovery Learning App',
+      title: 'コレッジ',
       theme: AppTheme.childMode,
       routerConfig: ref.watch(appRouterProvider),
     );

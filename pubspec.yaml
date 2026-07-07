@@ -58,6 +58,9 @@ dependencies:
   # --- ローカル永続化 (端末の役割 parent/child を保持) ---
   shared_preferences: ^2.3.2
 
+  # --- アプリ情報 (設定画面のバージョン表示) ---
+  package_info_plus: ^8.1.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
