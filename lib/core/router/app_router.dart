@@ -51,6 +51,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
       // 3. 役割確定後にログイン/オンボーディングへ来たら、役割の起点画面へ。
       if (loc == '/login' || loc == '/onboarding') return role.homePath;
+
+      // 4. 子ども端末では保護者向け「ようす」(/parent) を隠す。
+      //    タブでの非表示に加え、ディープリンク等での直接遷移もフィードへ戻す。
+      if (role == DeviceRole.child && loc == '/parent') return '/child';
       return null;
     },
     routes: [
