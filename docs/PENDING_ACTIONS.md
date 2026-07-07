@@ -10,6 +10,7 @@
 |---|---|---|---|
 | ~~D1~~ | `personalizeArticles` | ~~Phase③ 再生成バグ修正（`44644f9`）~~ → **2026-07-04 デプロイ済み**。 | ✅ 完了 |
 | ~~D2~~ | `refreshNewsPool` / `sendParentDigest`（新規）/ `updateInterestModel` / `fetchNews` | ~~**P3 送信側**（commit `66af1fa`）。通知①新着・通知②日次ダイジェスト（sendParentDigest 18時JST）・利用刻印。~~ → **2026-07-06 デプロイ済み**（main をマージし quiz+安全フィルタと統合したうえで `--only functions` 一括デプロイ。`sendParentDigest` 新規作成、Cloud Scheduler ジョブ生成済み）。 | ✅ 完了 |
+| ~~D3~~ | `refreshNewsPool`（内 `notifyNewArticles`）/ `sendParentDigest` | ~~**端末ロール別の通知絞り込み**（ブランチ `feat/device-role-onboarding`）。`fcm_tokens.role` で通知①は parent 端末を除外・通知②は parent 端末のみ。~~ → **2026-07-07 デプロイ済み**（`feat/device-role-onboarding` から直接 `--only functions` 一括デプロイ。7関数 Successful。**ブランチは main 未マージ**なので後でマージ要）。クライアント側（オンボーディング・role 書き込み）はアプリ更新のみで反映。 | ✅ 完了 |
 
 > `sendParentDigest` は**新規のスケジュール関数**なので `functions:sendParentDigest` 単体でも可だが、
 > 既存関数の変更（refreshNewsPool/updateInterestModel/fetchNews）も含むため `--only functions` 一括が確実。
@@ -43,10 +44,11 @@ autonomous には進めず、方針確認が必要なもの。
   クライアント `_handleDeepLink` は `article` / `feed` / `parent_digest` の3契約に対応。
 
 ### ⚠️ 既知の制約（要判断・将来対応）
-- **端末ロール区別なし**: 現状はファミリー単位の単一アカウント（uid）で、parent/child の
-  端末を区別しない。よって**通知①も②も同一 uid の全端末に届く**（親の想定＝別スマホで受信、が
-  現状は保証されない）。分けるには「端末ごとの role（child/parent）」を fcm_tokens に持たせ、
-  送信時に絞り込む拡張が必要。要プロダクト判断。
+- ~~**端末ロール区別なし**~~ → **2026-07-07 対応（ブランチ `feat/device-role-onboarding`・要デプロイ D3）**:
+  同一 Google アカウント（単一 uid 共有）のまま、端末ごとに役割（parent/child）を選ぶ
+  オンボーディングを追加。役割は SharedPreferences 保存＋`fcm_tokens/{token}.role` に書き込み、
+  送信側で絞り込む（通知①=新着は parent 端末を除外、通知②=日次は parent 端末のみ）。
+  役割はドロワー「この端末の役割」から変更可。**まだ main 未マージ・functions 未デプロイ**（下記 D3）。
 - **静音時間帯**: 通知①は朝6時発火なので実害小。将来、夜間抑制や頻度制御を入れるかは未検討。
 
 ### 要デプロイ（D2）→ ✅ 2026-07-06 デプロイ済み
