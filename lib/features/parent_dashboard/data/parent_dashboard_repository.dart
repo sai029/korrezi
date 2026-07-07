@@ -33,30 +33,28 @@ class ParentDashboardRepository {
   /// 保護者向け要約を表示する当日の記事を doc id 付きで取得する。
   ///
   /// doc id（= newsId）は子どもの閲覧状況（personalized_feed）との突合に使う。
+  ///
+  /// 子ども画面（child_feed / common_view）と同じ `news_pool` を同じ並び順・
+  /// 同じ件数で取得する（既定 limit=20）。1件でもパースに失敗したドキュメントが
+  /// あると一覧全体が落ちてサンプルへフォールバックしてしまうため、
+  /// 子ども側と同様にドキュメント単位でスキップする。
   Future<List<({String newsId, NewsPool article})>> fetchTodaysArticles({
-    int limit = 10,
+    int limit = 20,
   }) async {
     final snap = await _db
         .collection('news_pool')
         .orderBy('published_at', descending: true)
         .limit(limit)
         .get();
-    return snap.docs
-        .map((d) => (newsId: d.id, article: NewsPool.fromJson(d.data())))
-        .toList();
-  }
-
-  /// 子どもが閲覧済みの記事 ID 集合を取得する。
-  ///
-  /// `users/{userId}/personalized_feed` のうち `is_viewed == true` の doc id を返す。
-  Future<Set<String>> fetchViewedNewsIds(String userId) async {
-    final snap = await _db
-        .collection('users')
-        .doc(userId)
-        .collection('personalized_feed')
-        .where('is_viewed', isEqualTo: true)
-        .get();
-    return snap.docs.map((d) => d.id).toSet();
+    final rows = <({String newsId, NewsPool article})>[];
+    for (final d in snap.docs) {
+      try {
+        rows.add((newsId: d.id, article: NewsPool.fromJson(d.data())));
+      } catch (_) {
+        // フィールド欠損・型不一致のドキュメントはスキップ。
+      }
+    }
+    return rows;
   }
 }
 
