@@ -10,6 +10,7 @@ import '../../features/onboarding/presentation/role_select_screen.dart';
 import '../../features/parent_dashboard/presentation/parent_dashboard_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../../shared/widgets/shell_scaffold.dart';
+import '../../shared/widgets/swipe_shell_body.dart';
 import '../device/device_role.dart';
 import '../firebase/firebase_providers.dart';
 
@@ -70,9 +71,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/settings',
         builder: (context, state) => const SettingsScreen(),
       ),
-      StatefulShellRoute.indexedStack(
+      StatefulShellRoute(
         builder: (context, state, navigationShell) =>
             ShellScaffold(navigationShell: navigationShell),
+        // 既定の IndexedStack を横スワイプ対応の PageView に差し替える。
+        navigatorContainerBuilder: (context, navigationShell, children) =>
+            SwipeShellBody(
+          navigationShell: navigationShell,
+          children: children,
+        ),
         branches: [
           StatefulShellBranch(routes: [
             GoRoute(

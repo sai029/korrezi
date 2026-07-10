@@ -12,6 +12,12 @@ abstract final class AppColors {
   /// accent 上のテキスト
   static const accentInk       = Color(0xFF000B29);
 
+  // ── ロゴ原本の色（ロゴSVG由来。ロゴを分解した装飾でのみ使う） ──
+  /// ロゴのレッド（brandPrimary #D70026 とは別のロゴ固有色）
+  static const logoRed   = Color(0xFFFD5251);
+  /// ロゴのスレートグレー
+  static const logoSlate = Color(0xFF879BA5);
+
   // ── ニュートラル（#000B29 をベース） ──
   /// ほぼ黒のネイビー（黒の代替）
   static const ink900 = Color(0xFF000B29);
