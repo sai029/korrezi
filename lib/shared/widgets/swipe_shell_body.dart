@@ -70,7 +70,7 @@ class _SwipeShellBodyState extends ConsumerState<SwipeShellBody> {
       if (page != null && page != target) {
         controller.animateToPage(
           target,
-          duration: AppMotion.durBase,
+          duration: AppMotion.durFast,
           curve: AppMotion.curveStandard,
         );
       }
@@ -94,9 +94,10 @@ class _SwipeShellBodyState extends ConsumerState<SwipeShellBody> {
 
 /// タブ切り替え用の横 PageView 物理。
 ///
-/// 横スワイプの発火に必要な移動量を既定より大きめ（[dragStartDistanceMotionThreshold]）
-/// にして、縦フィード（PageView 側の閾値が非常に小さく敏感）とジェスチャアリーナで
-/// 競合したとき、斜めのドラッグを縦側に譲る。これにより縦スライドの効きを保つ。
+/// - [dragStartDistanceMotionThreshold] を既定より大きめにして、縦フィード
+///   （PageView 側の閾値が非常に小さく敏感）とジェスチャアリーナで競合したとき、
+///   斜めのドラッグを縦側に譲る。これにより縦スライドの効きを保つ。
+/// - 硬めのバネ＋低い最小 fling 速度で、離した後のスナップを機敏にする（横切替を速く）。
 class _TabSwipePhysics extends PageScrollPhysics {
   const _TabSwipePhysics({super.parent});
 
@@ -105,7 +106,17 @@ class _TabSwipePhysics extends PageScrollPhysics {
       _TabSwipePhysics(parent: buildParent(ancestor));
 
   @override
-  double get dragStartDistanceMotionThreshold => 24.0;
+  double get dragStartDistanceMotionThreshold => 36.0;
+
+  @override
+  SpringDescription get spring => SpringDescription.withDampingRatio(
+        mass: 0.35,
+        stiffness: 340,
+        ratio: 1.05,
+      );
+
+  @override
+  double get minFlingVelocity => 30.0;
 }
 
 /// PageView でオフスクリーンに回ってもブランチの状態（Navigator スタック・
