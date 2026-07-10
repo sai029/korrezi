@@ -14,7 +14,7 @@ class NewsRepository {
   final FirebaseFirestore _db;
 
   /// 公開日の新しい順にニュースプールを取得する。
-  Future<List<NewsPool>> fetchNewsPool({int limit = 20}) async {
+  Future<List<NewsPool>> fetchNewsPool({int limit = 40}) async {
     final snap = await _db
         .collection('news_pool')
         .orderBy('published_at', descending: true)
