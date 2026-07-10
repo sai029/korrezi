@@ -25,7 +25,7 @@ class FeedRepository {
     final snap = await _db
         .collection('news_pool')
         .orderBy('published_at', descending: true)
-        .limit(20)
+        .limit(40)
         .get();
     final items = <PersonalizedFeedItem>[];
     for (final d in snap.docs) {
@@ -67,7 +67,7 @@ class FeedRepository {
   /// 読み込む。display_title が未設定のドキュメント（テレメトリのみ）はスキップする。
   Future<List<PersonalizedFeedItem>> fetchPersonalizedFeed(
       String userId) async {
-    final snap = await _feedRef(userId).limit(20).get();
+    final snap = await _feedRef(userId).limit(40).get();
 
     final items = <PersonalizedFeedItem>[];
     for (final d in snap.docs) {
