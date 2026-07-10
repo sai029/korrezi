@@ -5,6 +5,7 @@ import '../../../core/auth/auth_service.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../shared/widgets/bouncy_tap.dart';
 import '../../../shared/widgets/koledge_logo.dart';
+import 'widgets/login_backgrounds.dart';
 
 /// 起動時のログイン画面。
 ///
@@ -42,16 +43,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 360),
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.space6),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // ブランドロゴ「コレッジ」（マーク + ワードマーク）
-                const KoledgeLogo(size: 88, showWordmark: true),
+      body: Stack(
+        children: [
+          // 背景「せかいのかけら」（ロゴの語彙を分解して漉き込む）
+          const Positioned.fill(child: LoginBackground()),
+          Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 360),
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.space6),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                // ブランドロゴ「コレッジ」（文字入りワードマーク SVG）
+                const KoledgeLogo(size: 200, showWordmark: true),
                 const SizedBox(height: AppSpacing.space3),
                 Text(
                   'せかいを見つけて、親子で話そう',
@@ -82,13 +87,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   child: const Text('ゲストで試す'),
                 ),
                 const SizedBox(height: AppSpacing.space5),
-                if (_busy) const CircularProgressIndicator(
-                  color: AppColors.brandPrimary,
+                // ローディング用の固定スペースを常に確保し、押下時のレイアウト移動を防ぐ
+                SizedBox(
+                  height: 36,
+                  width: 36,
+                  child: _busy
+                      ? const CircularProgressIndicator(
+                          color: AppColors.brandPrimary,
+                        )
+                      : null,
                 ),
               ],
+                ),
+              ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }
