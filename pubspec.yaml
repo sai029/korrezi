@@ -50,6 +50,7 @@ dependencies:
 
   # --- UI / データモデル ---
   google_fonts: ^6.2.1
+  flutter_svg: ^2.0.10+1
   freezed_annotation: ^2.4.4
   json_annotation: ^4.9.0
   cloud_functions: ^5.6.2
@@ -77,6 +78,24 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
 
+  # --- アプリアイコン生成 (assets/images/logo/ のロゴから各プラットフォームのアイコンを生成) ---
+  flutter_launcher_icons: ^0.14.4
+
+# アプリアイコン設定。生成: `dart run flutter_launcher_icons`
+# ロゴ（文字なし）を各プラットフォームのアイコンに反映する。
+flutter_launcher_icons:
+  image_path: "assets/images/logo/app_icon.png"
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  background_color_ios: "#FDFCFB"
+  adaptive_icon_background: "#FDFCFB"
+  adaptive_icon_foreground: "assets/images/logo/app_icon_foreground.png"
+  web:
+    generate: true
+    background_color: "#FDFCFB"
+    theme_color: "#D70026"
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
@@ -91,6 +110,8 @@ flutter:
   # サムネイル抽象化レイヤー用: カテゴリ別イラスト (thumbnail_config.base_asset の配置先)
   assets:
     - assets/images/categories/
+    # ブランドロゴ（タイトル画面の文字入りワードマーク SVG）
+    - assets/images/logo/
     # トピック別テンプレ画像（Imagen 生成・生成失敗時のフォールバック）
     - assets/thumbnails/templates/
 
