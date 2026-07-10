@@ -31,9 +31,9 @@ class LoginBackground extends StatelessWidget {
 class _WorldPiecesPainter extends CustomPainter {
   const _WorldPiecesPainter();
 
-  // ロゴの実色（トークンではなくロゴ由来の色をそのまま使う）
-  static const _slate = Color(0xFF879BA5);
-  static const _red = Color(0xFFFD5251);
+  // ロゴ原本の色（tokens.dart に定義）
+  static const _slate = AppColors.logoSlate;
+  static const _red = AppColors.logoRed;
 
   @override
   void paint(Canvas canvas, Size size) {
