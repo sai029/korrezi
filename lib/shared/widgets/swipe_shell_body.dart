@@ -78,6 +78,7 @@ class _SwipeShellBodyState extends ConsumerState<SwipeShellBody> {
 
     return PageView(
       controller: _controller,
+      physics: const _TabSwipePhysics(),
       onPageChanged: (page) {
         final branch = visible[page];
         if (branch != widget.navigationShell.currentIndex) {
@@ -89,6 +90,22 @@ class _SwipeShellBodyState extends ConsumerState<SwipeShellBody> {
       ],
     );
   }
+}
+
+/// タブ切り替え用の横 PageView 物理。
+///
+/// 横スワイプの発火に必要な移動量を既定より大きめ（[dragStartDistanceMotionThreshold]）
+/// にして、縦フィード（PageView 側の閾値が非常に小さく敏感）とジェスチャアリーナで
+/// 競合したとき、斜めのドラッグを縦側に譲る。これにより縦スライドの効きを保つ。
+class _TabSwipePhysics extends PageScrollPhysics {
+  const _TabSwipePhysics({super.parent});
+
+  @override
+  _TabSwipePhysics applyTo(ScrollPhysics? ancestor) =>
+      _TabSwipePhysics(parent: buildParent(ancestor));
+
+  @override
+  double get dragStartDistanceMotionThreshold => 24.0;
 }
 
 /// PageView でオフスクリーンに回ってもブランチの状態（Navigator スタック・
