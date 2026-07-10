@@ -1262,9 +1262,14 @@ export const personalizeArticles = onCall(
     const genuineEngagementCounts = (profileData.genuine_engagement_counts ?? {}) as Record<string, number>;
     const lastScoreUpdatedAt = (profileData.last_score_updated_at ?? {}) as Record<string, Timestamp>;
 
-    // 読み取り時に DISA 減衰を適用して現時点の実効スコアを算出する
+    // 読み取り時に DISA 減衰を適用して現時点の実効スコアを算出する。
+    // TOPIC_CATEGORIES 以外のキー（ニュースソース名等の旧スキーマ残骸）は
+    // ここで除外する。source_name 分離前に書き込まれたレガシーデータや、
+    // 将来の書き込みバグが混入しても Gemini プロンプトに渡さないための防御。
     const decayedInterests: Record<string, number> = {};
+    const topicSet = new Set<string>(TOPIC_CATEGORIES);
     for (const [cat, score] of Object.entries(interests)) {
+      if (!topicSet.has(cat)) continue;
       const phase = getInterestPhase(genuineEngagementCounts[cat] ?? 0);
       decayedInterests[cat] = applyDecayForRead(score, lastScoreUpdatedAt[cat], phase);
     }
@@ -1711,6 +1716,15 @@ export const updateInterestModel = onCall(
 
     const article = articleSnap.data()!;
     const category = article.interest_context as string;
+    // 旧スキーマ記事（interest_context にニュースソース名が入っていたもの）が
+    // まだ news_pool に残っていた場合の保険。TOPIC_CATEGORIES に無い値は
+    // 興味スコアとして書き込まない（ソース名の学習を防ぐ）。
+    if (!(TOPIC_CATEGORIES as readonly string[]).includes(category)) {
+      logger.warn("updateInterestModel: non-topic interest_context, skip", {
+        newsId, category,
+      });
+      return;
+    }
     // ── DISA Step 1: 記事の実文字数で T_exp を動的計算して E(i) を算出 ──────
     const charCount = (article.char_count as number) ?? 0;
     const E = calcEngagementValue(viewDurationSeconds, charCount);
