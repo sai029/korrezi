@@ -65,8 +65,8 @@
 ### クローンして起動
 
 ```bash
-git clone https://github.com/sai029/flutter_application_1.git
-cd flutter_application_1
+git clone https://github.com/sai029/korrezi.git
+cd korrezi
 flutter pub get
 flutter run
 ```
