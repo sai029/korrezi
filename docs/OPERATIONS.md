@@ -12,7 +12,7 @@
 | 確認したいこと | 場所 |
 |---|---|
 | Cloud Functions ログ | `firebase functions:log` または GCP コンソール → Cloud Functions |
-| Cloud Scheduler 状態 | https://console.cloud.google.com/cloudscheduler?project=ai-discovery-app-b3a9d |
+| Cloud Scheduler 状態 | https://console.cloud.google.com/cloudscheduler?project=<YOUR_PROJECT_ID> |
 | Firestore データ | Firebase コンソール → Firestore（`news_pool` / `rejected_articles` / `users`） |
 | 請求額 | GCP コンソール → お支払い（Blaze プラン） |
 | GNews 残クォータ | https://gnews.io ダッシュボード（無料 100 req/日） |
@@ -107,7 +107,7 @@ cd functions && npm run build && firebase deploy --only functions
 1. `interest_score < 40` のスキップ対象 → 正常動作（閲覧されればスコアが上がり次回生成）
 2. URL 形式を確認: `firebasestorage.googleapis.com/v0/...?token=...` が正。
    `storage.googleapis.com/...` 直 URL は Flutter Web で CORS NG（次回 personalize で自動再生成）
-3. CORS 設定が消えた場合: `gsutil cors set cors.json gs://ai-discovery-app-b3a9d.firebasestorage.app`
+3. CORS 設定が消えた場合: `gsutil cors set cors.json gs://<YOUR_PROJECT_ID>.firebasestorage.app`
 
 ### 5-3. 「サンプルきじを ひょうじちゅう」バナーが本番で出る
 サンプルフォールバックは **Firebase 未初期化 / news_pool 空 / 取得エラー** の3経路。
@@ -162,6 +162,6 @@ dart run build_runner build --delete-conflicting-outputs
 firebase functions:log
 
 # Scheduler 一時停止/再開（gcloud）
-gcloud scheduler jobs pause  firebase-schedule-refreshNewsPool-asia-northeast1 --project=ai-discovery-app-b3a9d
-gcloud scheduler jobs resume firebase-schedule-refreshNewsPool-asia-northeast1 --project=ai-discovery-app-b3a9d
+gcloud scheduler jobs pause  firebase-schedule-refreshNewsPool-asia-northeast1 --project=<YOUR_PROJECT_ID>
+gcloud scheduler jobs resume firebase-schedule-refreshNewsPool-asia-northeast1 --project=<YOUR_PROJECT_ID>
 ```

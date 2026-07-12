@@ -57,7 +57,7 @@ refreshNewsPool (onSchedule)           fetchNews (onCall)
 **一時停止・再開の方法:**
 ```
 GCP コンソール → Cloud Scheduler
-https://console.cloud.google.com/cloudscheduler?project=ai-discovery-app-b3a9d
+https://console.cloud.google.com/cloudscheduler?project=<YOUR_PROJECT_ID>
 → refreshNewsPool の行 → ⋮ → 「一時停止」/「再開」
 ```
 
@@ -260,7 +260,7 @@ AppDrawer (左ドロワー)
 
 | リソース | 設定 |
 |---|---|
-| Firebase プロジェクト | `ai-discovery-app-b3a9d` |
+| Firebase プロジェクト | `<YOUR_PROJECT_ID>` |
 | Cloud Functions リージョン | `asia-northeast1` (東京) |
 | Cloud Functions ランタイム | Node.js 22 |
 | Vertex AI リージョン | `us-central1` |

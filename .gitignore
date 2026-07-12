@@ -65,3 +65,4 @@ serviceAccountKey*.json
 firebase-debug.log
 firestore-debug.log
 .runtimeconfig.json
+.vercel

@@ -345,7 +345,7 @@ Flutter Web (CanvasKit) からの `NetworkImage` 読み込みに必要。
 cat > cors.json << 'EOF'
 [{"origin": ["*"], "method": ["GET"], "maxAgeSeconds": 3600}]
 EOF
-gsutil cors set cors.json gs://ai-discovery-app-b3a9d.firebasestorage.app
+gsutil cors set cors.json gs://<YOUR_PROJECT_ID>.firebasestorage.app
 ```
 
 ---
